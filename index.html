@@ -1,0 +1,2077 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Argus Diagnóstico Médico S.A. | Gestión de Turnos y Seguimiento Médico</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <!-- PapaParse para CSV y SheetJS para Excel (.xlsx / .xls) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- jsPDF y jsPDF-AutoTable para descarga directa de PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            argus: {
+              50: '#f0f7ff',
+              100: '#e0effe',
+              500: '#0284c7',
+              600: '#0369a1',
+              700: '#075985',
+              800: '#0c4a6e',
+              900: '#082f49',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+    table.virgolini-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    table.virgolini-table th,
+    table.virgolini-table td {
+      border-bottom: 1px solid #cbd5e1;
+      padding: 8px 10px;
+      vertical-align: top;
+    }
+    /* Patrón sutil en Blanco y Negro para resaltar Turnos Disponibles (Baches) en pantalla e impresión */
+    .bache-byn-pattern {
+      background-color: #f1f5f9;
+      background-image: repeating-linear-gradient(
+        -45deg,
+        #f1f5f9,
+        #f1f5f9 8px,
+        #e2e8f0 8px,
+        #e2e8f0 16px
+      );
+    }
+    .bache-pdf-preview {
+      background-color: #e5e7eb;
+      border-top: 2px dashed #000000 !important;
+      border-bottom: 2px dashed #000000 !important;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- NOTIFICACIONES VISIBLES ARRIBA A LA DERECHA (TOAST) -->
+  <div id="toastContainer" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-md w-full pointer-events-none px-4 sm:px-0"></div>
+
+  <!-- MODAL RÁPIDO PARA OCUPAR UN TURNO DISPONIBLE (BACHE) DIGITALMENTE -->
+  <div id="modalOcuparBache" class="fixed inset-0 bg-slate-900/60 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-xl border-2 border-slate-900 max-w-lg w-full overflow-hidden">
+      <div class="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-calendar-plus text-white"></i>
+          <h3 class="text-sm font-bold uppercase tracking-wide">Asignar Turno en Espacio Disponible</h3>
+        </div>
+        <button type="button" onclick="cerrarModalOcuparBache()" class="text-slate-300 hover:text-white">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <form onsubmit="guardarTurnoEnBache(event)" class="p-4 space-y-3 text-xs">
+        <div class="grid grid-cols-3 gap-2 bg-slate-100 p-2.5 rounded-lg border border-slate-300 font-mono">
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 uppercase">Fecha</label>
+            <input id="bacheFormFecha" type="text" required class="w-full bg-white border border-slate-300 rounded px-2 py-1 font-bold text-slate-900" />
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 uppercase">Hora Desde</label>
+            <input id="bacheFormDesde" type="time" required class="w-full bg-white border border-slate-300 rounded px-2 py-1 font-bold text-slate-900" />
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 uppercase">Hora Hasta</label>
+            <input id="bacheFormHasta" type="time" required class="w-full bg-white border border-slate-300 rounded px-2 py-1 font-bold text-slate-900" />
+          </div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div class="sm:col-span-2">
+            <label class="block font-bold text-slate-700 uppercase mb-1">Apellido y Nombre del Paciente *</label>
+            <input id="bacheFormPaciente" type="text" required placeholder="Ej: PEREZ JUAN CARLOS" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 uppercase font-semibold focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 uppercase mb-1">DNI *</label>
+            <input id="bacheFormDni" type="text" required placeholder="Ej: 25123456" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 font-mono focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 uppercase mb-1">Obra Social / Entidad</label>
+            <input id="bacheFormEntidad" type="text" placeholder="Ej: OSDE, PAMI, PARTICULAR" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 uppercase focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 uppercase mb-1">Teléfono</label>
+            <input id="bacheFormTelefono" type="text" placeholder="Ej: 11 1234-5678" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 font-mono focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 uppercase mb-1">Estado Inicial</label>
+            <select id="bacheFormEstado" class="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold">
+              <option value="Confirmado">Confirmado</option>
+              <option value="A Confirmar">A Confirmar</option>
+            </select>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block font-bold text-slate-700 uppercase mb-1">Práctica(s) a Realizar *</label>
+            <input id="bacheFormPractica" type="text" required placeholder="Ej: ECOGRAFIA COMPLETA DE ABDOMEN" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 uppercase focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block font-bold text-slate-700 uppercase mb-1">Observaciones</label>
+            <input id="bacheFormObs" type="text" placeholder="Ej: di indicaciones de ayuno - wsp" class="w-full border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-900" />
+          </div>
+        </div>
+        <input id="bacheFormMedico" type="hidden" />
+        <div class="flex justify-end gap-2 pt-2 border-t border-slate-200">
+          <button type="button" onclick="cerrarModalOcuparBache()" class="px-3.5 py-1.5 rounded-lg border border-slate-300 font-semibold text-slate-700 hover:bg-slate-100">
+            Cancelar
+          </button>
+          <button type="submit" class="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold">
+            Guardar Turno en Agenda
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 1. ENCABEZADO MINIMALISTA Y DIRECTO -->
+  <header class="bg-argus-900 text-white border-b border-argus-800 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      <!-- Marca y Subtítulo -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-sky-600 flex items-center justify-center shrink-0">
+          <i class="fa-solid fa-calendar-check text-lg text-white"></i>
+        </div>
+        <div>
+          <h1 class="font-bold text-base sm:text-lg tracking-tight text-white">ARGUS DIAGNÓSTICO MÉDICO S.A.</h1>
+          <p class="text-xs text-slate-300">
+            Control de Turnos y Generador de Planilla PDF — <span class="text-sky-300 font-medium">Sede Maschwitz</span>
+            <span class="mx-1.5">•</span>
+            <span id="headerProfesional" class="font-medium text-white">Prof: VIRGOLINI, AGUSTÍN MARIO</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Contadores Compactos y Botones Principales -->
+      <div class="flex flex-wrap items-center justify-between lg:justify-end gap-2">
+        <!-- Resumen compacto -->
+        <div class="flex items-center gap-2 bg-argus-800/90 border border-argus-700 px-3 py-1.5 rounded-lg text-xs">
+          <span>Turnos: <strong id="countTotal" class="text-white font-mono">56</strong></span>
+          <span class="text-slate-500">|</span>
+          <span class="text-amber-300">A Confirmar: <strong id="countPendientes" class="font-mono">56</strong></span>
+          <span class="text-slate-500">|</span>
+          <span class="text-emerald-300">Confirmados: <strong id="countConfirmados" class="font-mono">0</strong></span>
+          <span class="text-slate-500">|</span>
+          <span class="bg-white text-slate-900 px-1.5 py-0.5 rounded font-bold">Libres: <strong id="countBaches" class="font-mono">1</strong></span>
+        </div>
+
+        <!-- Botón Cargar CSV / Excel -->
+        <label for="fileInput" class="cursor-pointer bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow transition flex items-center gap-1.5">
+          <i class="fa-solid fa-file-excel"></i>
+          <span>Cargar Excel / CSV</span>
+          <input id="fileInput" type="file" accept=".csv,.xlsx,.xls,.txt" class="hidden" onchange="handleFileUpload(event)" />
+        </label>
+
+        <!-- Botón Descargar Planilla PDF -->
+        <button id="btnHeaderPdf" onclick="descargarPDFDirecto()" class="bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow transition flex items-center gap-1.5" title="Descarga el PDF con el nombre del profesional y fecha actual">
+          <i class="fa-solid fa-file-pdf"></i>
+          <span>Descargar Planilla PDF</span>
+        </button>
+
+        <!-- Botón Restaurar Datos Originales (con texto claro y sin bloqueos) -->
+        <button type="button" onclick="resetToDefaultData()" class="bg-argus-800 hover:bg-rose-700 text-slate-200 hover:text-white text-xs font-semibold px-3 py-2 rounded-lg border border-argus-700 hover:border-rose-600 transition flex items-center gap-1.5" title="Reiniciar a los 56 turnos originales del 02/11/2026">
+          <i class="fa-solid fa-rotate-left"></i>
+          <span>Restaurar Originales</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Barra rápida de Nombre de Archivo PDF Dinámico (Profesional + Fecha) -->
+    <div class="bg-argus-800/80 border-t border-argus-800 px-4 sm:px-6 py-2">
+      <div class="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-xs">
+        <div class="flex flex-wrap items-center gap-2 text-slate-200">
+          <span class="inline-flex items-center gap-1 text-sky-300 font-semibold">
+            <i class="fa-solid fa-user-doctor"></i>
+            <span>Datos de Planilla PDF:</span>
+          </span>
+          <div class="flex items-center gap-1">
+            <span class="text-slate-400">Profesional:</span>
+            <input id="customPdfMedico" type="text" oninput="onManualHeaderOrFilenameChange('header')" class="bg-argus-900/90 border border-argus-700 focus:border-sky-400 rounded px-2 py-0.5 text-xs font-semibold text-white w-48 sm:w-56 focus:outline-none" value="VIRGOLINI, AGUSTIN MARIO" title="Nombre del Profesional que saldrá en el encabezado y nombre del PDF" />
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-slate-400">Fecha:</span>
+            <input id="customPdfFecha" type="text" oninput="onManualHeaderOrFilenameChange('header')" class="bg-argus-900/90 border border-argus-700 focus:border-sky-400 rounded px-2 py-0.5 text-xs font-mono font-semibold text-white w-28 focus:outline-none" value="02/11/2026" title="Fecha que saldrá en el encabezado y nombre del PDF" />
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-slate-400">Filial:</span>
+            <input id="customPdfFilial" type="text" oninput="syncPreviewHeaders()" class="bg-argus-900/90 border border-argus-700 focus:border-sky-400 rounded px-2 py-0.5 text-xs text-white w-32 focus:outline-none" value="Sede Maschwitz" title="Filial o sede" />
+          </div>
+        </div>
+
+        <!-- Nombre del archivo PDF en vivo (editable) -->
+        <div class="flex items-center gap-1.5">
+          <span class="text-slate-300 whitespace-nowrap"><i class="fa-solid fa-file-signature text-amber-300 mr-1"></i>Nombre PDF:</span>
+          <input id="customPdfFilename" type="text" oninput="onManualHeaderOrFilenameChange('filename')" class="bg-argus-900 border border-sky-500/60 focus:border-sky-400 rounded px-2.5 py-0.5 text-xs font-mono text-sky-200 w-full md:w-80 focus:outline-none" value="Planilla_Turnos_VIRGOLINI_AGUSTIN_MARIO_02-11-2026.pdf" title="Podés personalizar el nombre del archivo PDF antes de descargarlo" />
+          <button type="button" onclick="resetAutoFilename()" class="text-[11px] bg-argus-700 hover:bg-argus-600 text-slate-200 px-2 py-0.5 rounded border border-argus-600 transition shrink-0" title="Autogenerar nombre con Profesional + Fecha">
+            Auto
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTENIDO PRINCIPAL -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-5 space-y-4">
+
+    <!-- 2. BARRA DE FILTROS LIMPIA (LOS FILTROS SOLICITADOS + PROFESIONAL) -->
+    <section class="bg-white rounded-xl shadow-xs border border-slate-200 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-filter text-sky-600 text-xs"></i>
+          <h2 class="text-xs font-bold text-slate-700 uppercase tracking-wider">Filtros de Agenda</h2>
+          <span id="badgeMostrando" class="bg-slate-100 text-slate-700 text-xs font-medium px-2.5 py-0.5 rounded-md">
+            Mostrando 56 de 56 turnos
+          </span>
+        </div>
+
+        <button type="button" onclick="clearAllFilters()" class="text-xs font-semibold text-slate-600 hover:text-rose-600 px-2.5 py-1 rounded-md hover:bg-rose-50 transition flex items-center gap-1">
+          <i class="fa-solid fa-xmark"></i>
+          <span>Limpiar Filtros</span>
+        </button>
+      </div>
+
+      <!-- Grilla ordenada con los filtros pedidos -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        <!-- 1. Profesional / Médico Actuante -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">1. Profesional / Médico</label>
+          <select id="filterMedico" onchange="applyFilters()" class="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+            <option value="">Todos los profesionales</option>
+          </select>
+        </div>
+
+        <!-- 2. Fecha de Turno -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">2. Fecha de Turno</label>
+          <input id="filterFecha" type="text" oninput="applyFilters()" placeholder="Ej: 02/11/2026" class="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500" />
+        </div>
+
+        <!-- 3. Hora Desde y Hora Hasta -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">3. Hora Desde / Hasta</label>
+          <div class="flex items-center gap-1.5">
+            <input id="filterHoraDesde" type="time" onchange="applyFilters()" oninput="applyFilters()" class="w-1/2 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500" />
+            <span class="text-slate-400 text-xs">-</span>
+            <input id="filterHoraHasta" type="time" onchange="applyFilters()" oninput="applyFilters()" class="w-1/2 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500" />
+          </div>
+        </div>
+
+        <!-- 4. Nombre de Paciente -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">4. Nombre de Paciente</label>
+          <input id="filterPaciente" type="text" oninput="applyFilters()" placeholder="Buscar apellido o nombre..." class="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500" />
+        </div>
+
+        <!-- 5. DNI -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">5. DNI</label>
+          <input id="filterDni" type="text" oninput="applyFilters()" placeholder="Número de documento..." class="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500" />
+        </div>
+
+        <!-- 6. Teléfono -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">6. Teléfono</label>
+          <input id="filterTelefono" type="text" oninput="applyFilters()" placeholder="Ej: 3484, 11..." class="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500" />
+        </div>
+
+        <!-- 7. Práctica (Selector + Búsqueda) -->
+        <div class="sm:col-span-2">
+          <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">7. Práctica Médica</label>
+          <div class="flex gap-1.5">
+            <select id="filterPracticaSelect" onchange="applyFilters()" class="w-3/5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+              <option value="">Todas las prácticas</option>
+            </select>
+            <input id="filterPracticaText" type="text" oninput="applyFilters()" placeholder="O escribir práctica..." class="w-2/5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500" />
+          </div>
+        </div>
+
+        <!-- 8. Observaciones -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">8. Observaciones</label>
+          <input id="filterObservaciones" type="text" oninput="applyFilters()" placeholder="Ej: ayuno, ome, prep, wsp..." class="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500" />
+        </div>
+
+        <!-- 9. Estado de Confirmación -->
+        <div>
+          <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">9. Estado del Turno</label>
+          <select id="filterEstado" onchange="applyFilters()" class="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500">
+            <option value="">Todos los estados</option>
+            <option value="A Confirmar">A Confirmar</option>
+            <option value="Confirmado">Confirmado</option>
+            <option value="Cancelado">Cancelado</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- BARRA DE CONTROL DE BACHES ("TURNO DISPONIBLE") OPTIMIZADA PARA BLANCO Y NEGRO -->
+      <div class="mt-3 pt-3 border-t border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+            <input id="toggleMostrarBaches" type="checkbox" checked onchange="applyFilters()" class="w-4 h-4 accent-slate-900 rounded cursor-pointer" />
+            <span class="bg-slate-900 text-white text-[11px] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
+              <i class="fa-regular fa-clock mr-1"></i>Detectar "TURNO DISPONIBLE" (Modo ByN)
+            </span>
+          </label>
+
+          <div class="flex items-center gap-1.5 text-xs">
+            <span class="text-slate-600 font-medium">Bache mínimo:</span>
+            <select id="selectMinBache" onchange="applyFilters()" class="bg-white border border-slate-300 rounded px-2 py-1 text-xs font-mono font-bold text-slate-900 focus:outline-none">
+              <option value="10" selected>10 min o más</option>
+              <option value="15">15 min o más</option>
+              <option value="20">20 min o más</option>
+              <option value="30">30 min o más</option>
+            </select>
+          </div>
+
+          <div class="flex items-center gap-1.5 text-xs">
+            <span class="text-slate-600 font-medium">Visualización:</span>
+            <select id="selectModoSubdivision" onchange="applyFilters()" class="bg-white border border-slate-300 rounded px-2 py-1 text-xs font-semibold text-slate-900 focus:outline-none">
+              <option value="bloque" selected>Bloque entero (ej: 12:20 - 13:00)</option>
+              <option value="10">Fraccionar en turnos de 10 min</option>
+              <option value="15">Fraccionar en turnos de 15 min</option>
+              <option value="20">Fraccionar en turnos de 20 min</option>
+            </select>
+          </div>
+
+          <label class="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer select-none" title="Si marcás un turno como Cancelado, ese horario queda libre como Turno Disponible">
+            <input id="toggleCanceladoComoBache" type="checkbox" checked onchange="applyFilters()" class="w-3.5 h-3.5 accent-slate-900 rounded cursor-pointer" />
+            <span>Liberar horarios "Cancelados"</span>
+          </label>
+        </div>
+
+        <div id="resumenBachesDia" class="text-xs font-mono text-slate-700 bg-white px-2.5 py-1 rounded border border-slate-300">
+          Jornada: 09:00 a 19:55 • 1 turno disponible
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. SELECTOR DE LAS 2 PESTAÑAS SIMPLES -->
+    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200">
+      <div class="flex gap-2">
+        <button type="button" id="tabBtnTurnos" onclick="switchTab('turnos')" class="px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 border-sky-600 text-sky-700 bg-white rounded-t-lg flex items-center gap-2">
+          <i class="fa-solid fa-table-list"></i>
+          <span>1. Control de Turnos</span>
+        </button>
+        <button type="button" id="tabBtnPdf" onclick="switchTab('pdf')" class="px-4 py-2.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-slate-600 hover:text-slate-900 flex items-center gap-2">
+          <i class="fa-solid fa-file-pdf text-rose-600"></i>
+          <span>2. Vista Previa Planilla PDF</span>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-2 text-xs text-slate-500 pb-1">
+        <span>Archivo activo: <strong id="labelOrigenDatos" class="text-slate-800 font-semibold">controlturnosreservados (4).csv (Original)</strong></span>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- PESTAÑA 1: CONTROL DE TURNOS (TABLA ADMINISTRATIVA LIMPIA)          -->
+    <!-- =================================================================== -->
+    <section id="tabContentTurnos" class="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-800 text-white text-[11px] font-semibold uppercase tracking-wider">
+              <th class="py-3 px-3.5 w-28">Horario</th>
+              <th class="py-3 px-3.5">Paciente / DNI / Entidad</th>
+              <th class="py-3 px-3.5 w-44">Teléfono</th>
+              <th class="py-3 px-3.5">Prácticas Asignadas</th>
+              <th class="py-3 px-3.5 w-72">Observaciones</th>
+              <th class="py-3 px-3.5 w-40 text-center">Estado del Turno</th>
+            </tr>
+          </thead>
+          <tbody id="turnosTableBody" class="divide-y divide-slate-200 text-xs sm:text-sm">
+            <!-- Renderizado por JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- PESTAÑA 2: VISTA PREVIA PLANILLA PDF ("Planilla Turnos Virgolini")  -->
+    <!-- =================================================================== -->
+    <section id="tabContentPdf" class="hidden space-y-4">
+      <div class="bg-white p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-3 shadow-xs">
+        <div>
+          <h3 class="text-sm font-bold text-slate-900">Vista Previa Oficial de Planilla Médica</h3>
+          <p class="text-xs text-slate-500">
+            Archivo a generar: <strong id="previewFilenameBadge" class="font-mono text-sky-700">Planilla_Turnos_VIRGOLINI_AGUSTIN_MARIO_02-11-2026.pdf</strong>
+          </p>
+        </div>
+        <button type="button" id="btnPreviewPdf" onclick="descargarPDFDirecto()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold px-5 py-2.5 rounded-lg shadow transition flex items-center gap-2 self-start md:self-auto">
+          <i class="fa-solid fa-download"></i>
+          <span>Descargar este PDF (.pdf)</span>
+        </button>
+      </div>
+
+      <!-- Hoja de Vista Previa estilo Planilla Oficial -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-300 p-6 sm:p-8 max-w-5xl mx-auto text-black">
+        <div class="border-b-2 border-black pb-3 mb-3">
+          <div class="flex justify-between items-start">
+            <div>
+              <h2 class="text-base sm:text-lg font-bold uppercase">ARGUS DIAGNOSTICO MEDICO S.A.</h2>
+              <p class="text-sm font-bold">Turnos Asignados al <span id="pdfPreviewFechaTop">02/11/2026</span></p>
+            </div>
+            <div class="text-right text-xs font-mono text-slate-700">
+              <div>Turnos listados: <strong id="pdfPreviewTotalTurnos">56</strong></div>
+              <div>Total prácticas: <strong id="pdfPreviewTotalPracticas">92</strong></div>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2 text-xs sm:text-sm">
+            <div><strong>Profesional:</strong> <span id="pdfPreviewMedico">VIRGOLINI, AGUSTIN MARIO</span></div>
+            <div><strong>Fecha:</strong> <span id="pdfPreviewFechaSub">02/11/2026</span></div>
+            <div><strong>Filial:</strong> <span id="pdfPreviewFilial">Sede Maschwitz</span></div>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="virgolini-table text-left text-xs">
+            <thead>
+              <tr class="border-b-2 border-black bg-slate-100">
+                <th class="w-24 font-bold">Turno</th>
+                <th class="font-bold">Paciente / Entidad / Teléfonos</th>
+                <th class="w-20 font-bold">Edad/Peso</th>
+                <th class="font-bold">Prestación / Región / Cond. Clínica / Estado</th>
+                <th class="w-20 text-right font-bold">Importe</th>
+              </tr>
+            </thead>
+            <tbody id="pdfPreviewTableBody">
+              <!-- Renderizado por JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- LÓGICA JAVASCRIPT CON LECTOR EXCEL/CSV MULTIFORMATO Y RESET DIRECTO   -->
+  <!-- ===================================================================== -->
+  <script>
+    // Datos originales precargados (56 turnos agrupados de las 92 filas del CSV original del 02/11/2026)
+    const DEFAULT_TURNOS = [
+      {"id": "turno-1", "fecha": "02/11/2026", "horaDesde": "09:00", "horaHasta": "09:10", "paciente": "ALARCON VERONICA", "dni": "DNI 11016910", "entidad": "PAMI", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VASOS DE CUELLO", "ECOGRAFIA RENAL", "ECOGRAFIA TIROIDEA", "ECOGRAFIA TOCOGINECOLOGICA"], "cantidad": 4, "email": "veronica.alarcon1717@gmail.com", "telefono": "3484556264", "observaciones": "eco tocog. + eco renal + tiroide + dop vc di prep", "usuarioReserva": "VELAZQUEZ CECILIA"},
+      {"id": "turno-2", "fecha": "02/11/2026", "horaDesde": "09:10", "horaHasta": "09:20", "paciente": "CALANDRONI CLAUDIA", "dni": "DNI 16399143", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER TIROIDES", "ECOGRAFIA COMPLETA DE ABDOMEN"], "cantidad": 2, "email": "acl383@yahoo.com.ar", "telefono": "36929663", "observaciones": "", "usuarioReserva": "WETZEL ROCIO"},
+      {"id": "turno-3", "fecha": "02/11/2026", "horaDesde": "09:20", "horaHasta": "09:30", "paciente": "PIERRARD LUIS ALFREDO", "dni": "DNI 13730905", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA DE VEJIGA O PROSTATA", "ECOGRAFIA RENAL"], "cantidad": 2, "email": "martinayjuani@hotmail.com", "telefono": "22381594", "observaciones": "eco renal y vp - di prepa- wsp", "usuarioReserva": "LLANES SOFIA"},
+      {"id": "turno-4", "fecha": "02/11/2026", "horaDesde": "09:20", "horaHasta": "09:40", "paciente": "SEGOVIA DELIA BEATRIZ", "dni": "DNI 10549248", "entidad": "PAMI", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER ARTERIAL DE MIEMBROS INFERIORES", "DOPPLER VENOSO DE MIEMBROS INFERIORES"], "cantidad": 2, "email": "deliabeatriz288@gmail.com", "telefono": "3484511569", "observaciones": "ecodoppler arterial y venoso de mmii - fo 08/06 - pedi anticipacion dni orden y credencial digital --", "usuarioReserva": "LLANES FLORENCIA"},
+      {"id": "turno-5", "fecha": "02/11/2026", "horaDesde": "09:30", "horaHasta": "09:50", "paciente": "STROPPARO CLAUDIA", "dni": "DNI 20204548", "entidad": "SANCOR SALUD", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VENOSO DE MIEMBROS INFERIORES"], "cantidad": 1, "email": "claudiastropparo2020@gmail.com", "telefono": "+54 11 65896600", "observaciones": "dop ven mmii", "usuarioReserva": "SEIB CANDELARIA"},
+      {"id": "turno-6", "fecha": "02/11/2026", "horaDesde": "09:50", "horaHasta": "10:00", "paciente": "SOSA DELFINA", "dni": "DNI 48930376", "entidad": "GALENO", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN", "ECOGRAFIA RENAL", "ECOGRAFIA TOCOGINECOLOGICA"], "cantidad": 3, "email": "nanbarrera0701@gmail.com", "telefono": "S/D", "observaciones": "eco ab pelv renal", "usuarioReserva": "ROGOSKI VALENTINA"},
+      {"id": "turno-7", "fecha": "02/11/2026", "horaDesde": "10:00", "horaHasta": "10:10", "paciente": "DE FILIPPIS CANDELA VALENTINA", "dni": "DNI 48292954", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA TOCOGINECOLOGICA"], "cantidad": 1, "email": "cande.dfppis@gmail.com", "telefono": "+54 11 38172407", "observaciones": "Fo 1/10 Eco ginec Di agua ---No hay ninguna restricción de número de ecografías con el dr. (consultado con Sofi cut) wpp", "usuarioReserva": "MARTINEZ LUCRECIA"},
+      {"id": "turno-8", "fecha": "02/11/2026", "horaDesde": "10:10", "horaHasta": "10:20", "paciente": "PERLA CLAUDIA MABEL", "dni": "DNI 16979266", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER TIROIDES"], "cantidad": 1, "email": "cmperla@outlook.com", "telefono": "51137700", "observaciones": "", "usuarioReserva": "ESCOBAR MAURO"},
+      {"id": "turno-9", "fecha": "02/11/2026", "horaDesde": "10:20", "horaHasta": "10:30", "paciente": "BUONO ANDREA", "dni": "DNI 23678775", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN", "ECOGRAFIA TIROIDEA"], "cantidad": 2, "email": "tanna.1974@gmail.com", "telefono": "+54 11 66166826", "observaciones": "eco hepatica + tiroides + rmn rodilla der", "usuarioReserva": "SEIB CANDELARIA"},
+      {"id": "turno-10", "fecha": "02/11/2026", "horaDesde": "10:30", "horaHasta": "10:40", "paciente": "GOMEZ DIEGO HERNAN", "dni": "DNI 24636610", "entidad": "SMG", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER AORTA ABDOMINAL O ILIACA", "DOPPLER VASOS DE CUELLO"], "cantidad": 2, "email": "diego@linearte.com.ar", "telefono": "1159407011", "observaciones": "", "usuarioReserva": "CASTRO SOFIA"},
+      {"id": "turno-11", "fecha": "02/11/2026", "horaDesde": "10:40", "horaHasta": "10:50", "paciente": "GOMEZ DIEGO HERNAN", "dni": "DNI 24636610", "entidad": "SMG", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN", "ECOGRAFIA RENAL", "ECOGRAFIA TIROIDEA"], "cantidad": 3, "email": "diego@linearte.com.ar", "telefono": "1159407011", "observaciones": "", "usuarioReserva": "CASTRO SOFIA"},
+      {"id": "turno-12", "fecha": "02/11/2026", "horaDesde": "10:50", "horaHasta": "11:00", "paciente": "ESCUDERO SILVIA", "dni": "DNI 27548265", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN"], "cantidad": 1, "email": "silviescuderoaol@gmail.com", "telefono": "30201673", "observaciones": "di ayuno", "usuarioReserva": "TONIZZO RAMIRO"},
+      {"id": "turno-13", "fecha": "02/11/2026", "horaDesde": "11:00", "horaHasta": "11:10", "paciente": "GRILLO MIRIAM NOEMI", "dni": "DNI 16983721", "entidad": "PAMI", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER TIROIDES"], "cantidad": 1, "email": "miribent@gmail.com", "telefono": "1167940000", "observaciones": "dopler de tiroides ok ome pedi app", "usuarioReserva": "VELAZQUEZ CECILIA"},
+      {"id": "turno-14", "fecha": "02/11/2026", "horaDesde": "11:10", "horaHasta": "11:20", "paciente": "JACQUET ANALIA", "dni": "DNI 27218217", "entidad": "SMG", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA TRANSVAGINAL"], "cantidad": 1, "email": "analiajacquet18@gmail.com", "telefono": "30718471", "observaciones": "solo tv", "usuarioReserva": "ACEVEDO RAMIRO"},
+      {"id": "turno-15", "fecha": "02/11/2026", "horaDesde": "11:10", "horaHasta": "11:20", "paciente": "VERON TERESA IDA", "dni": "DNI 12304083", "entidad": "PAMI", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VASOS DE CUELLO"], "cantidad": 1, "email": "teresaieveron@gmail.com", "telefono": "3489556013", "observaciones": "dp vc pedi doc ome ok token", "usuarioReserva": "SANTILLAN ELIDE"},
+      {"id": "turno-16", "fecha": "02/11/2026", "horaDesde": "11:20", "horaHasta": "11:30", "paciente": "TORIGGIA LAURA INES", "dni": "DNI 20435584", "entidad": "GALENO", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA REGION INGUINAL", "ECOGRAFIA DE PARED ABDOMINAL"], "cantidad": 2, "email": "airelaura.lit@gmail.com", "telefono": "67009400", "observaciones": "", "usuarioReserva": "SANTILLAN ELIDE"},
+      {"id": "turno-17", "fecha": "02/11/2026", "horaDesde": "11:30", "horaHasta": "11:40", "paciente": "ZEN FANG CHEN", "dni": "DNI 94013031", "entidad": "MEDIFE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA TRANSVAGINAL"], "cantidad": 1, "email": "chenerika625@gmail.com", "telefono": "+54 11 27389380", "observaciones": "eco tv wpp", "usuarioReserva": "ESCOBAR MAURO"},
+      {"id": "turno-18", "fecha": "02/11/2026", "horaDesde": "11:40", "horaHasta": "12:00", "paciente": "PEREZ MARIA ALEJANDRA", "dni": "DNI 20496333", "entidad": "MEDICUS", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER ARTERIAL DE MIEMBROS INFERIORES"], "cantidad": 1, "email": "alejandraperez78@hotmail.com", "telefono": "60036085", "observaciones": "", "usuarioReserva": "SORRENTINO ABRIL"},
+      {"id": "turno-19", "fecha": "02/11/2026", "horaDesde": "12:00", "horaHasta": "12:10", "paciente": "GARCES LEILA", "dni": "DNI 93693140", "entidad": "PAMI", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VASOS DE CUELLO", "ECOGRAFIA TRANSVAGINAL", "ECOGRAFIA COMPLETA DE ABDOMEN"], "cantidad": 3, "email": "leilagarces@gmail.com", "telefono": "+54 11 53233686", "observaciones": "doppler vc + endocavitaria gine + abd - ome ok pedi ayuno", "usuarioReserva": "SANTILLAN ELIDE"},
+      {"id": "turno-20", "fecha": "02/11/2026", "horaDesde": "12:00", "horaHasta": "12:10", "paciente": "PONCE ERICA ELISABETH", "dni": "DNI 29022311", "entidad": "OMINT", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VASOS DE CUELLO"], "cantidad": 1, "email": "erica23_ely@hotmail.com", "telefono": "69743663", "observaciones": "fo 21/10 dopp vdc turno wsp.", "usuarioReserva": "REYES MICAELA"},
+      {"id": "turno-21", "fecha": "02/11/2026", "horaDesde": "12:10", "horaHasta": "12:20", "paciente": "HOLIK SUSANA BEATRIZ", "dni": "DNI 4184942", "entidad": "PARTICULAR", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN", "ECOGRAFIA RENAL", "ECOGRAFIA DE VEJIGA O PROSTATA"], "cantidad": 3, "email": "silvia_falo@hotmail.com.ar", "telefono": "+54 11 67043172", "observaciones": "", "usuarioReserva": "SEIB CANDELARIA"},
+      {"id": "turno-22", "fecha": "02/11/2026", "horaDesde": "12:10", "horaHasta": "12:20", "paciente": "MONTENEGRO SUSANA INES", "dni": "DNI 16597245", "entidad": "PAMI", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VASOS DE CUELLO"], "cantidad": 1, "email": "susanaimontenegro@gmail.com", "telefono": "3484535424", "observaciones": "doppler de vasos de cuello. fo: 15/07 pasado a eges", "usuarioReserva": "SANTILLAN ELIDE"},
+      {"id": "turno-23", "fecha": "02/11/2026", "horaDesde": "13:00", "horaHasta": "13:20", "paciente": "ETCHETO JUAN CAROS", "dni": "DNI 7618304", "entidad": "PAMI", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VENOSO DE MIEMBROS INFERIORES", "DOPPLER ARTERIAL DE MIEMBROS INFERIORES"], "cantidad": 2, "email": "martalouro96@gmail.com", "telefono": "1158418085", "observaciones": "art y ven mmii", "usuarioReserva": "SONZOGNI PAULA"},
+      {"id": "turno-24", "fecha": "02/11/2026", "horaDesde": "13:20", "horaHasta": "13:30", "paciente": "DI CAMPELLO ISABEL", "dni": "DNI 32783965", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA DE PARED ABDOMINAL"], "cantidad": 1, "email": "isabeldca@gmail.com", "telefono": "+54 11 35768550", "observaciones": "", "usuarioReserva": "CANDIA FLORENCIA"},
+      {"id": "turno-25", "fecha": "02/11/2026", "horaDesde": "13:30", "horaHasta": "13:40", "paciente": "VALLARO MARIA CRISTINA", "dni": "DNI 13180968", "entidad": "PAMI", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VASOS DE CUELLO"], "cantidad": 1, "email": "crisvallaro@hotmail.com", "telefono": "+54 11 24532451", "observaciones": "repro por feriado del 9/11", "usuarioReserva": "WETZEL ROCIO"},
+      {"id": "turno-26", "fecha": "02/11/2026", "horaDesde": "13:40", "horaHasta": "14:00", "paciente": "ROMERO ANGELA MARIA", "dni": "DNI 13363795", "entidad": "HOSPITALARIO", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER ARTERIAL DE MIEMBROS INFERIORES", "DOPPLER VASOS DE CUELLO"], "cantidad": 2, "email": "angee_romero@hotmail.com", "telefono": "31781236", "observaciones": "pasamos $150.400", "usuarioReserva": "WETZEL ROCIO"},
+      {"id": "turno-27", "fecha": "02/11/2026", "horaDesde": "14:00", "horaHasta": "14:10", "paciente": "AGUIRRE MARIA CAROLINA", "dni": "DNI 24669493", "entidad": "AUSTRAL SALUD", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN"], "cantidad": 1, "email": "carolinaaguirre06@gamil.com", "telefono": "+54 11 25543935", "observaciones": "", "usuarioReserva": "ACEVEDO RAMIRO"},
+      {"id": "turno-28", "fecha": "02/11/2026", "horaDesde": "14:10", "horaHasta": "14:20", "paciente": "CALVO MARIA FLORENCIA", "dni": "DNI 29454918", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VASOS DE CUELLO"], "cantidad": 1, "email": "mfcalvo82@gmail.com", "telefono": "59567540", "observaciones": "", "usuarioReserva": "SANTILLAN ELIDE"},
+      {"id": "turno-29", "fecha": "02/11/2026", "horaDesde": "14:20", "horaHasta": "14:40", "paciente": "GILES GABRIELA", "dni": "DNI 14235176", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER ARTERIAL DE MIEMBROS INFERIORES", "DOPPLER VASOS DE CUELLO", "ECOGRAFIA TIROIDEA"], "cantidad": 3, "email": "gabygiles1@gmail.com", "telefono": "3484338012", "observaciones": "", "usuarioReserva": "WETZEL ROCIO"},
+      {"id": "turno-30", "fecha": "02/11/2026", "horaDesde": "14:40", "horaHasta": "14:50", "paciente": "GUEDES MARIA MILAGROS", "dni": "DNI 34647761", "entidad": "HOSPITAL BRITANICO DE BUENOS AIRES", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA TRANSVAGINAL"], "cantidad": 1, "email": "miriguedes@gmail.com", "telefono": "41581260", "observaciones": "", "usuarioReserva": "LLANES SOFIA"},
+      {"id": "turno-31", "fecha": "02/11/2026", "horaDesde": "14:50", "horaHasta": "15:00", "paciente": "DIAZ MARCELO ALEJANDRO", "dni": "DNI 14429257", "entidad": "PAMI", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER AORTA ABDOMINAL O ILIACA", "DOPPLER VASOS DE CUELLO"], "cantidad": 2, "email": "mav1970@hotmail.es", "telefono": "1155876018", "observaciones": "dop vc + aorta abd // dop card avise app ome ok di prep", "usuarioReserva": "VELAZQUEZ CECILIA"},
+      {"id": "turno-32", "fecha": "02/11/2026", "horaDesde": "15:00", "horaHasta": "15:10", "paciente": "SANTILLAN LILIANA AZUCENA", "dni": "DNI 14271334", "entidad": "PAMI", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VASOS DE CUELLO"], "cantidad": 1, "email": "estrella@live.com.ar", "telefono": "+54 11 50196545", "observaciones": "", "usuarioReserva": "LLANES FLORENCIA"},
+      {"id": "turno-33", "fecha": "02/11/2026", "horaDesde": "15:10", "horaHasta": "15:20", "paciente": "ROCCA SEBASTIAN", "dni": "DNI 24334390", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN"], "cantidad": 1, "email": "sebalr1974@gmail.com", "telefono": "54779007", "observaciones": "", "usuarioReserva": "RIVARA LORENA"},
+      {"id": "turno-34", "fecha": "02/11/2026", "horaDesde": "15:20", "horaHasta": "15:30", "paciente": "PETRAGLIA NOELIA", "dni": "DNI 28417532", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN"], "cantidad": 1, "email": "noepetraglia@gmail.com", "telefono": "58420475", "observaciones": "", "usuarioReserva": "RIVARA LORENA"},
+      {"id": "turno-35", "fecha": "02/11/2026", "horaDesde": "15:30", "horaHasta": "15:40", "paciente": "MONTERO CESAR MIGUEL", "dni": "DNI 20054993", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VASOS DE CUELLO", "ECOGRAFIA COMPLETA DE ABDOMEN", "ECOGRAFIA RENAL", "ECOGRAFIA DE VEJIGA O PROSTATA"], "cantidad": 4, "email": "cesarmontero3@hotmail.com", "telefono": "31620264", "observaciones": "di prep", "usuarioReserva": "WETZEL ROCIO"},
+      {"id": "turno-36", "fecha": "02/11/2026", "horaDesde": "15:40", "horaHasta": "15:50", "paciente": "SANCHEZ MAIRA ALEXANDRA", "dni": "DNI 38538454", "entidad": "ACCORD Y UNION PERSONAL", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA TRANSVAGINAL"], "cantidad": 1, "email": "maiasanchez23@gmail.com", "telefono": "3484694951", "observaciones": "eco tv / indico que es doctor", "usuarioReserva": "PERAFAN AGUSTIN"},
+      {"id": "turno-37", "fecha": "02/11/2026", "horaDesde": "15:50", "horaHasta": "16:00", "paciente": "CANDELORO ALEJANDRA PAOLA", "dni": "DNI 35098048", "entidad": "MEDICUS", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER TRANSVAGINAL"], "cantidad": 1, "email": "alecandeloro@hotmail.com", "telefono": "1151191647", "observaciones": "dopp tv -", "usuarioReserva": "GUAMANTE BRISA"},
+      {"id": "turno-38", "fecha": "02/11/2026", "horaDesde": "15:50", "horaHasta": "16:00", "paciente": "SCARICACIOTTOLI DIEGO ARIEL", "dni": "DNI 26500707", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VASOS DE CUELLO"], "cantidad": 1, "email": "diegoscari@yahoo.com.ar", "telefono": "55661188", "observaciones": "", "usuarioReserva": "WETZEL ROCIO"},
+      {"id": "turno-39", "fecha": "02/11/2026", "horaDesde": "16:00", "horaHasta": "16:10", "paciente": "BONDARE RUBEN OSCAR", "dni": "DNI 10743090", "entidad": "PAMI", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA RENAL", "ECOGRAFIA DE VEJIGA O PROSTATA"], "cantidad": 2, "email": "rubenobondare@gmail.com", "telefono": "59512849", "observaciones": "eco renal y vesical con rpm - tomo una sola segun nueva normativa - pami - retencion", "usuarioReserva": "SANTILLAN ELIDE"},
+      {"id": "turno-40", "fecha": "02/11/2026", "horaDesde": "16:10", "horaHasta": "16:20", "paciente": "PAREDES SABRINA", "dni": "DNI 29655785", "entidad": "SANCOR SALUD", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN"], "cantidad": 1, "email": "paredes_sabri@hotmail.com", "telefono": "65678833", "observaciones": "DI AYUNO TURNO WPP", "usuarioReserva": "SORRENTINO ABRIL"},
+      {"id": "turno-41", "fecha": "02/11/2026", "horaDesde": "16:20", "horaHasta": "16:40", "paciente": "FUENTES RUBEN ERNESTO", "dni": "DNI 17811024", "entidad": "GALENO", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VENOSO DE MIEMBROS INFERIORES", "DOPPLER ARTERIAL DE MIEMBROS INFERIORES"], "cantidad": 2, "email": "rubenfuente33@gmail.com", "telefono": "1136528540", "observaciones": "doppler av de mmii fo 26/10", "usuarioReserva": "ROSA SASHA"},
+      {"id": "turno-42", "fecha": "02/11/2026", "horaDesde": "16:40", "horaHasta": "16:50", "paciente": "GERMAIN MARIANA", "dni": "DNI 24922294", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VASOS DE CUELLO", "ECOGRAFIA COMPLETA DE ABDOMEN", "ECOGRAFIA DE VEJIGA O PROSTATA", "ECOGRAFIA TIROIDEA", "ECOGRAFIA RENAL"], "cantidad": 5, "email": "germain.mariana@yahoo.com.ar", "telefono": "65866050", "observaciones": "ayuno y retencion --", "usuarioReserva": "WETZEL ROCIO"},
+      {"id": "turno-43", "fecha": "02/11/2026", "horaDesde": "16:50", "horaHasta": "17:00", "paciente": "IZZO OLGA VALERIA", "dni": "DNI 24588225", "entidad": "OMINT", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN"], "cantidad": 1, "email": "voilmarketingdigital@gmail.com", "telefono": "+54 11 57028521", "observaciones": "", "usuarioReserva": "SEIB CANDELARIA"},
+      {"id": "turno-44", "fecha": "02/11/2026", "horaDesde": "17:00", "horaHasta": "17:15", "paciente": "ROCHI LAURA MELINA", "dni": "DNI 36944485", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA TOCOGINECOLOGICA OBSTETRICA"], "cantidad": 1, "email": "melina.rochi@gmail.com", "telefono": "27258155", "observaciones": "eco obst -", "usuarioReserva": "GUAMANTE BRISA"},
+      {"id": "turno-45", "fecha": "02/11/2026", "horaDesde": "17:15", "horaHasta": "17:30", "paciente": "OHOLEGUY AGUSTINA", "dni": "DNI 35266624", "entidad": "SMG", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA TOCOGINECOLOGICA OBSTETRICA"], "cantidad": 1, "email": "agustina.oholeguy@gmail.com", "telefono": "+54 11 55602359", "observaciones": "Fo 19/10 Eco obs wpp", "usuarioReserva": "MARTINEZ LUCRECIA"},
+      {"id": "turno-46", "fecha": "02/11/2026", "horaDesde": "17:30", "horaHasta": "17:40", "paciente": "DE TORO FERNANDA", "dni": "DNI 30886000", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN"], "cantidad": 1, "email": "fernandadetoro@gmail.com", "telefono": "32155457", "observaciones": "di ayuno", "usuarioReserva": "GUAMANTE BRISA"},
+      {"id": "turno-47", "fecha": "02/11/2026", "horaDesde": "17:40", "horaHasta": "17:50", "paciente": "ACCATTOLI CRISTIAN", "dni": "DNI 28417985", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN"], "cantidad": 1, "email": "cristian.accattoli@gmail.com", "telefono": "36937843", "observaciones": "", "usuarioReserva": "GUAMANTE BRISA"},
+      {"id": "turno-48", "fecha": "02/11/2026", "horaDesde": "17:50", "horaHasta": "18:00", "paciente": "DANELON IVO", "dni": "DNI 11948362", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA DE VEJIGA O PROSTATA", "ECOGRAFIA RENAL"], "cantidad": 2, "email": "ivodanelon@hotmail.com", "telefono": "+54 11 44461027", "observaciones": "eco renal y vcp", "usuarioReserva": "CANDIA FLORENCIA"},
+      {"id": "turno-49", "fecha": "02/11/2026", "horaDesde": "18:00", "horaHasta": "18:10", "paciente": "GOMEZ NORMA CELIA", "dni": "DNI 14487824", "entidad": "IOMA", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA COMPLETA DE ABDOMEN", "ECOGRAFIA TIROIDEA"], "cantidad": 2, "email": "normaceliagomez@gmail.com", "telefono": "+54 3484 699519", "observaciones": "fo 2710 eco abd y tiroides. turno wsp.", "usuarioReserva": "REYES MICAELA"},
+      {"id": "turno-50", "fecha": "02/11/2026", "horaDesde": "18:10", "horaHasta": "18:30", "paciente": "DE MARTINI VERONICA", "dni": "DNI 32037372", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VENOSO DE MIEMBROS INFERIORES"], "cantidad": 1, "email": "veronicademartini@gmail.com", "telefono": "55291538", "observaciones": "DOPP VENOSO D MMI", "usuarioReserva": "GUAMANTE BRISA"},
+      {"id": "turno-51", "fecha": "02/11/2026", "horaDesde": "18:30", "horaHasta": "18:40", "paciente": "RUBIO ROMINA", "dni": "DNI 29115348", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA RENAL", "ECOGRAFIA DE VEJIGA O PROSTATA", "ECOGRAFIA TOCOGINECOLOGICA"], "cantidad": 3, "email": "felicyro@yahoo.com.ar", "telefono": "68785492", "observaciones": "", "usuarioReserva": "SANTILLAN ELIDE"},
+      {"id": "turno-52", "fecha": "02/11/2026", "horaDesde": "18:40", "horaHasta": "19:00", "paciente": "RAGGIO BÁRBARA", "dni": "DNI 28751545", "entidad": "SMG", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VENOSO DE MIEMBROS INFERIORES"], "cantidad": 1, "email": "barbararaggio@hotmail.com", "telefono": "+54 11 50476097", "observaciones": "doppler venoso mmii pedi doc wsp", "usuarioReserva": "LLANES SOFIA"},
+      {"id": "turno-53", "fecha": "02/11/2026", "horaDesde": "19:00", "horaHasta": "19:10", "paciente": "YAZEBSK DANIEL", "dni": "DNI 92830127", "entidad": "AVALIAN", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA RENAL", "ECOGRAFIA DE VEJIGA O PROSTATA"], "cantidad": 2, "email": "danielyabesk4@gmail.com", "telefono": "44072918", "observaciones": "", "usuarioReserva": "SANTILLAN ELIDE"},
+      {"id": "turno-54", "fecha": "02/11/2026", "horaDesde": "19:10", "horaHasta": "19:20", "paciente": "PEÑALBA MARIA BELEN", "dni": "DNI 39850740", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER TIROIDES"], "cantidad": 1, "email": "mariabelenpenalba@hotmail.com", "telefono": "3484348352", "observaciones": "dopp tiroides -", "usuarioReserva": "GUAMANTE BRISA"},
+      {"id": "turno-55", "fecha": "02/11/2026", "horaDesde": "19:20", "horaHasta": "19:40", "paciente": "FERNANDEZ CAROL", "dni": "DNI 25593545", "entidad": "SMG", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["DOPPLER VENOSO DE MIEMBROS INFERIORES"], "cantidad": 1, "email": "carolfer77@hotmail.com", "telefono": "+54 54 61398791", "observaciones": "dopp v mmii", "usuarioReserva": "ROGOSKI VALENTINA"},
+      {"id": "turno-56", "fecha": "02/11/2026", "horaDesde": "19:40", "horaHasta": "19:55", "paciente": "BOLATTI DANA ELOLA", "dni": "DNI 96118745", "entidad": "OSDE", "medico": "VIRGOLINI AGUSTIN MARIO", "practicas": ["ECOGRAFIA TOCOGINECOLOGICA OBSTETRICA"], "cantidad": 1, "email": "danaelola24@gmail.com", "telefono": "34372656", "observaciones": "eco obst sem 16", "usuarioReserva": "ROGOSKI VALENTINA"}
+    ];
+
+    const STORAGE_KEY = 'argus_turnos_maschwitz_v3';
+    const STORAGE_FILENAME_KEY = 'argus_turnos_filename_v3';
+    let allTurnos = [];
+    let filteredTurnos = [];
+    let displayRowsWithGaps = [];
+    let currentDetectedGaps = [];
+    let userEditedFilenameManually = false;
+    let userEditedHeaderManually = false;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadDataFromStorage();
+      populateMedicosAndPracticasDropdowns();
+      applyFilters();
+    });
+
+    // =========================================================================
+    // GENERACIÓN AUTOMÁTICA DE NOMBRE DE ARCHIVO PDF (PROFESIONAL + FECHA)
+    // =========================================================================
+    function formatMedicoDisplay(rawMedico) {
+      const clean = String(rawMedico || 'SIN PROFESIONAL').trim().replace(/\s+/g, ' ');
+      if (clean.includes(',')) return clean.toUpperCase();
+      // Si viene "VIRGOLINI AGUSTIN MARIO", formatear para el encabezado como "VIRGOLINI, AGUSTIN MARIO"
+      return clean.replace(/^(\S+)\s+(.+)$/, '$1, $2').toUpperCase();
+    }
+
+    function buildSafePdfFilename(medicoStr, fechaStr) {
+      const cleanMedico = String(medicoStr || 'PROFESIONAL')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[,.;:]/g, ' ')
+        .trim()
+        .replace(/[^a-zA-Z0-9\s\-]/g, '')
+        .replace(/\s+/g, '_')
+        .toUpperCase() || 'PROFESIONAL';
+
+      const cleanFecha = String(fechaStr || 'SIN-FECHA')
+        .trim()
+        .replace(/[\/\\:\s]+/g, '-')
+        .replace(/[^a-zA-Z0-9\-]/g, '');
+
+      return `Planilla_Turnos_${cleanMedico}_${cleanFecha}.pdf`;
+    }
+
+    function updateDynamicHeaderAndFilename(sourceTurnos) {
+      const list = (sourceTurnos && sourceTurnos.length > 0) ? sourceTurnos : allTurnos;
+      if (!list || list.length === 0) return;
+
+      // Detectar médicos únicos y fechas únicas en el conjunto actual
+      const uniqueMedicos = [...new Set(list.map(t => (t.medico || '').trim()).filter(Boolean))];
+      const uniqueFechas = [...new Set(list.map(t => (t.fecha || '').trim()).filter(Boolean))];
+
+      const rawMedico = uniqueMedicos.length === 1
+        ? uniqueMedicos[0]
+        : (uniqueMedicos[0] || 'VARIOS PROFESIONALES');
+
+      const displayMedico = uniqueMedicos.length > 1
+        ? `${formatMedicoDisplay(uniqueMedicos[0])} (+${uniqueMedicos.length - 1})`
+        : formatMedicoDisplay(rawMedico);
+
+      const displayFecha = uniqueFechas.length === 1
+        ? uniqueFechas[0]
+        : (uniqueFechas[0] || '02/11/2026');
+
+      if (!userEditedHeaderManually) {
+        const inputMed = document.getElementById('customPdfMedico');
+        const inputFec = document.getElementById('customPdfFecha');
+        if (inputMed) inputMed.value = displayMedico;
+        if (inputFec) inputFec.value = displayFecha;
+      }
+
+      syncPreviewHeaders();
+    }
+
+    function syncPreviewHeaders() {
+      const medicoVal = (document.getElementById('customPdfMedico')?.value || 'VIRGOLINI, AGUSTIN MARIO').trim();
+      const fechaVal = (document.getElementById('customPdfFecha')?.value || '02/11/2026').trim();
+      const filialVal = (document.getElementById('customPdfFilial')?.value || 'Sede Maschwitz').trim();
+
+      document.getElementById('headerProfesional').textContent = `Prof: ${medicoVal} (${fechaVal})`;
+      document.getElementById('pdfPreviewFechaTop').textContent = fechaVal;
+      document.getElementById('pdfPreviewFechaSub').textContent = fechaVal;
+      document.getElementById('pdfPreviewMedico').textContent = medicoVal;
+      const filialEl = document.getElementById('pdfPreviewFilial');
+      if (filialEl) filialEl.textContent = filialVal;
+
+      if (!userEditedFilenameManually) {
+        const autoName = buildSafePdfFilename(medicoVal, fechaVal);
+        const fnInput = document.getElementById('customPdfFilename');
+        if (fnInput) fnInput.value = autoName;
+      }
+
+      const currentFn = getFinalPdfFilename();
+      const badge = document.getElementById('previewFilenameBadge');
+      if (badge) badge.textContent = currentFn;
+    }
+
+    // Convierte "HH:MM" a minutos totales desde las 00:00 (ej: "09:10" -> 550)
+    function timeToMinutes(hhmm) {
+      if (!hhmm || typeof hhmm !== 'string') return null;
+      const m = hhmm.trim().match(/^(\d{1,2}):(\d{2})$/);
+      if (!m) return null;
+      const hh = parseInt(m[1], 10);
+      const mm = parseInt(m[2], 10);
+      if (isNaN(hh) || isNaN(mm)) return null;
+      return hh * 60 + mm;
+    }
+
+    // Convierte minutos desde las 00:00 a formato "HH:MM"
+    function minutesToTime(totalMin) {
+      const hh = Math.floor(totalMin / 60);
+      const mm = totalMin % 60;
+      return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+    }
+
+    // Calcula la lista combinada de turnos + baches ("TURNO DISPONIBLE") entre el primer y último turno de cada día/profesional
+    function buildAgendaWithGaps(turnosList) {
+      const mostrarBaches = document.getElementById('toggleMostrarBaches')?.checked ?? true;
+      const minGap = parseInt(document.getElementById('selectMinBache')?.value || '10', 10);
+      const modoSubdivision = document.getElementById('selectModoSubdivision')?.value || 'bloque';
+      const canceladoLibera = document.getElementById('toggleCanceladoComoBache')?.checked ?? true;
+
+      // Si el usuario está buscando un paciente, DNI, teléfono, práctica u observación puntual,
+      // no intercalar baches artificiales entre resultados de búsqueda aislados.
+      const hayBusquedaPuntual = Boolean(
+        document.getElementById('filterPaciente')?.value.trim() ||
+        document.getElementById('filterDni')?.value.trim() ||
+        document.getElementById('filterTelefono')?.value.trim() ||
+        document.getElementById('filterPracticaSelect')?.value.trim() ||
+        document.getElementById('filterPracticaText')?.value.trim() ||
+        document.getElementById('filterObservaciones')?.value.trim() ||
+        document.getElementById('filterEstado')?.value.trim()
+      );
+
+      if (!mostrarBaches || hayBusquedaPuntual || turnosList.length === 0) {
+        currentDetectedGaps = [];
+        updateGapSummaryBanner(turnosList, [], hayBusquedaPuntual);
+        return turnosList.map(t => ({ ...t, isGap: false }));
+      }
+
+      // Agrupar por Fecha + Profesional para analizar cada agenda diaria del primer al último turno
+      const groups = new Map();
+      turnosList.forEach(t => {
+        const key = `${t.fecha || ''}__${t.medico || ''}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(t);
+      });
+
+      const combinedResult = [];
+      const allGaps = [];
+
+      for (const [, groupTurnos] of groups.entries()) {
+        // Ordenar por horaDesde y luego horaHasta
+        const sorted = [...groupTurnos].sort((a, b) => {
+          const cmp = a.horaDesde.localeCompare(b.horaDesde);
+          return cmp !== 0 ? cmp : a.horaHasta.localeCompare(b.horaHasta);
+        });
+
+        let maxEndMinutesSoFar = null;
+        const fechaGrupo = sorted[0]?.fecha || '02/11/2026';
+        const medicoGrupo = sorted[0]?.medico || 'VIRGOLINI AGUSTIN MARIO';
+
+        for (let i = 0; i < sorted.length; i++) {
+          const t = sorted[i];
+          const startMin = timeToMinutes(t.horaDesde);
+          let endMin = timeToMinutes(t.horaHasta);
+          if (startMin !== null && (endMin === null || endMin <= startMin)) {
+            endMin = startMin + 10; // duración mínima de respaldo
+          }
+
+          const ignoraOcupacion = canceladoLibera && t.estado === 'Cancelado';
+
+          // Si ya teníamos un horario de fin previo y el nuevo turno empieza después, verificar si hay bache >= minGap
+          if (!ignoraOcupacion && maxEndMinutesSoFar !== null && startMin !== null) {
+            const diff = startMin - maxEndMinutesSoFar;
+            if (diff >= minGap) {
+              const gapSlices = createGapRows(
+                maxEndMinutesSoFar,
+                startMin,
+                modoSubdivision,
+                fechaGrupo,
+                medicoGrupo
+              );
+              gapSlices.forEach(g => {
+                combinedResult.push(g);
+                allGaps.push(g);
+              });
+            }
+          }
+
+          combinedResult.push({ ...t, isGap: false });
+
+          if (!ignoraOcupacion && endMin !== null) {
+            if (maxEndMinutesSoFar === null || endMin > maxEndMinutesSoFar) {
+              maxEndMinutesSoFar = endMin;
+            }
+          }
+        }
+      }
+
+      currentDetectedGaps = allGaps;
+      updateGapSummaryBanner(turnosList, allGaps, false);
+      return combinedResult;
+    }
+
+    function createGapRows(startMin, endMin, modoSubdivision, fecha, medico) {
+      const rows = [];
+      const step = modoSubdivision === 'bloque' ? (endMin - startMin) : parseInt(modoSubdivision, 10);
+
+      if (!step || step <= 0 || modoSubdivision === 'bloque') {
+        const dur = endMin - startMin;
+        rows.push({
+          id: `bache-${fecha}-${startMin}-${endMin}`,
+          isGap: true,
+          fecha,
+          medico,
+          horaDesde: minutesToTime(startMin),
+          horaHasta: minutesToTime(endMin),
+          duracionMin: dur
+        });
+        return rows;
+      }
+
+      let cursor = startMin;
+      while (cursor < endMin) {
+        const next = Math.min(cursor + step, endMin);
+        const dur = next - cursor;
+        rows.push({
+          id: `bache-${fecha}-${cursor}-${next}`,
+          isGap: true,
+          fecha,
+          medico,
+          horaDesde: minutesToTime(cursor),
+          horaHasta: minutesToTime(next),
+          duracionMin: dur
+        });
+        cursor = next;
+      }
+      return rows;
+    }
+
+    function updateGapSummaryBanner(turnosList, gapsList, hayBusquedaPuntual) {
+      const badgeCount = document.getElementById('countBaches');
+      if (badgeCount) badgeCount.textContent = gapsList.length;
+
+      const banner = document.getElementById('resumenBachesDia');
+      if (!banner) return;
+
+      if (turnosList.length === 0) {
+        banner.textContent = 'Sin turnos en la vista actual';
+        return;
+      }
+
+      if (hayBusquedaPuntual) {
+        banner.textContent = 'Filtro específico activo (quitá filtros de búsqueda para ver baches del día)';
+        return;
+      }
+
+      const starts = turnosList.map(t => t.horaDesde).filter(Boolean).sort();
+      const ends = turnosList.map(t => t.horaHasta).filter(Boolean).sort();
+      const firstStart = starts[0] || '--:--';
+      const lastEnd = ends[ends.length - 1] || '--:--';
+
+      if (gapsList.length === 0) {
+        banner.innerHTML = `Jornada: <strong>${firstStart} a ${lastEnd} hs</strong> • Sin turnos disponibles`;
+      } else {
+        banner.innerHTML = `Jornada: <strong>${firstStart} a ${lastEnd} hs</strong> • <strong>${gapsList.length} ${gapsList.length === 1 ? 'turno disponible' : 'turnos disponibles'}</strong>`;
+      }
+    }
+
+    function abrirModalOcuparBache(fecha, horaDesde, horaHasta, medico) {
+      document.getElementById('bacheFormFecha').value = fecha || '02/11/2026';
+      document.getElementById('bacheFormDesde').value = horaDesde || '12:20';
+      document.getElementById('bacheFormHasta').value = horaHasta || '12:30';
+      document.getElementById('bacheFormMedico').value = medico || 'VIRGOLINI AGUSTIN MARIO';
+      document.getElementById('bacheFormPaciente').value = '';
+      document.getElementById('bacheFormDni').value = '';
+      document.getElementById('bacheFormEntidad').value = 'OSDE';
+      document.getElementById('bacheFormTelefono').value = '';
+      document.getElementById('bacheFormPractica').value = '';
+      document.getElementById('bacheFormObs').value = '';
+      document.getElementById('bacheFormEstado').value = 'Confirmado';
+
+      const modal = document.getElementById('modalOcuparBache');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      setTimeout(() => document.getElementById('bacheFormPaciente')?.focus(), 50);
+    }
+
+    function cerrarModalOcuparBache() {
+      const modal = document.getElementById('modalOcuparBache');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function guardarTurnoEnBache(e) {
+      e.preventDefault();
+      const fecha = document.getElementById('bacheFormFecha').value.trim();
+      const horaDesde = document.getElementById('bacheFormDesde').value.trim();
+      const horaHasta = document.getElementById('bacheFormHasta').value.trim();
+      const paciente = document.getElementById('bacheFormPaciente').value.trim().toUpperCase();
+      let dni = document.getElementById('bacheFormDni').value.trim().toUpperCase();
+      if (dni && !dni.startsWith('DNI')) dni = `DNI ${dni}`;
+      const entidad = (document.getElementById('bacheFormEntidad').value.trim() || 'PARTICULAR').toUpperCase();
+      const telefono = document.getElementById('bacheFormTelefono').value.trim() || 'S/D';
+      const practicaRaw = document.getElementById('bacheFormPractica').value.trim().toUpperCase();
+      const practicas = practicaRaw.split(/[+,;]/).map(s => s.trim()).filter(Boolean);
+      const observaciones = document.getElementById('bacheFormObs').value.trim();
+      const estado = document.getElementById('bacheFormEstado').value;
+      const medico = document.getElementById('bacheFormMedico').value.trim() || 'VIRGOLINI AGUSTIN MARIO';
+
+      const nuevoTurno = normalizeTurnoRecord({
+        id: `turno-manual-${Date.now()}`,
+        fecha,
+        horaDesde,
+        horaHasta,
+        paciente,
+        dni,
+        entidad,
+        medico,
+        practicas: practicas.length > 0 ? practicas : ['PRÁCTICA ASIGNADA'],
+        cantidad: practicas.length || 1,
+        telefono,
+        observaciones,
+        usuarioReserva: 'AGENDA WEB',
+        estado
+      }, allTurnos.length);
+
+      allTurnos.push(nuevoTurno);
+      detectSameSlot();
+      saveDataToStorage();
+      populateMedicosAndPracticasDropdowns();
+      cerrarModalOcuparBache();
+      applyFilters();
+      showToast(`Turno asignado a ${paciente} (${horaDesde} a ${horaHasta} hs)`, 'success');
+    }
+
+    function onManualHeaderOrFilenameChange(source) {
+      if (source === 'header') {
+        userEditedHeaderManually = true;
+        userEditedFilenameManually = false; // regenerar el nombre del PDF acorde al nuevo médico/fecha escrito
+        syncPreviewHeaders();
+      } else if (source === 'filename') {
+        userEditedFilenameManually = true;
+        const badge = document.getElementById('previewFilenameBadge');
+        if (badge) badge.textContent = getFinalPdfFilename();
+      }
+    }
+
+    function resetAutoFilename() {
+      userEditedHeaderManually = false;
+      userEditedFilenameManually = false;
+      updateDynamicHeaderAndFilename(filteredTurnos.length > 0 ? filteredTurnos : allTurnos);
+      showToast('Nombre de PDF sincronizado automáticamente con Profesional y Fecha.', 'info');
+    }
+
+    function getFinalPdfFilename() {
+      const fnInput = document.getElementById('customPdfFilename');
+      let raw = fnInput ? fnInput.value.trim() : '';
+      if (!raw) {
+        const medicoVal = document.getElementById('customPdfMedico')?.value || 'PROFESIONAL';
+        const fechaVal = document.getElementById('customPdfFecha')?.value || 'FECHA';
+        raw = buildSafePdfFilename(medicoVal, fechaVal);
+      }
+      // Limpiar caracteres inválidos de sistema de archivos
+      raw = raw.replace(/[\/\\?%*:|"<>]/g, '-').replace(/\s+/g, '_');
+      if (!raw.toLowerCase().endsWith('.pdf')) {
+        raw += '.pdf';
+      }
+      return raw;
+    }
+
+    // =========================================================================
+    // NORMALIZACIÓN DE FECHAS, HORAS Y TELÉFONOS
+    // =========================================================================
+    function normalizeText(str) {
+      return String(str ?? '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s/]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function formatTimeHHMM(raw) {
+      if (raw === undefined || raw === null || raw === '') return '';
+      // Si viene como número decimal de Excel (ej: 0.375 = 09:00)
+      if (typeof raw === 'number' && raw > 0 && raw < 1) {
+        const totalMinutes = Math.round(raw * 24 * 60);
+        const hh = Math.floor(totalMinutes / 60) % 24;
+        const mm = totalMinutes % 60;
+        return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+      }
+      const str = String(raw).trim();
+      if (!isNaN(str) && Number(str) > 0 && Number(str) < 1) {
+        const totalMinutes = Math.round(Number(str) * 24 * 60);
+        const hh = Math.floor(totalMinutes / 60) % 24;
+        const mm = totalMinutes % 60;
+        return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+      }
+      // Soportar formatos como "09:00", "9:00", "09:00:00", "0910-:"
+      const match = str.match(/(\d{1,2})[:.](\d{2})/);
+      if (match) {
+        return match[1].padStart(2, '0') + ':' + match[2];
+      }
+      const matchCompact = str.match(/^(\d{2})(\d{2})$/);
+      if (matchCompact) {
+        return matchCompact[1] + ':' + matchCompact[2];
+      }
+      return str.substring(0, 5);
+    }
+
+    function parseTimeRange(rawDesde, rawHasta) {
+      const strDesde = String(rawDesde ?? '').trim();
+      const strHasta = String(rawHasta ?? '').trim();
+
+      // Si "Hora Desde" o "Turno" trae rango junto (ej: "09:00 - 09:10" o "09:00-09:10")
+      const rangeMatch = strDesde.match(/(\d{1,2}[:.]?\d{2})\s*[-aA/]\s*(\d{1,2}[:.]?\d{2})/);
+      if (rangeMatch) {
+        const d = formatTimeHHMM(rangeMatch[1]);
+        const h = strHasta ? formatTimeHHMM(strHasta) : formatTimeHHMM(rangeMatch[2]);
+        return { horaDesde: d || '09:00', horaHasta: h || d || '09:10' };
+      }
+
+      const d = formatTimeHHMM(strDesde) || '09:00';
+      const h = formatTimeHHMM(strHasta) || d;
+      return { horaDesde: d, horaHasta: h };
+    }
+
+    function normalizeDateDDMMYYYY(raw, fallbackDate) {
+      if (!raw) return fallbackDate || '02/11/2026';
+      if (raw instanceof Date && !isNaN(raw.getTime())) {
+        const dd = String(raw.getDate()).padStart(2, '0');
+        const mm = String(raw.getMonth() + 1).padStart(2, '0');
+        const yyyy = raw.getFullYear();
+        return `${dd}/${mm}/${yyyy}`;
+      }
+      const str = String(raw).trim();
+      // Número serial de fecha de Excel (ej: 46328)
+      if (/^\d{5}$/.test(str)) {
+        const serial = Number(str);
+        const utcDays = Math.floor(serial - 25569);
+        const dateObj = new Date(utcDays * 86400 * 1000);
+        const dd = String(dateObj.getUTCDate()).padStart(2, '0');
+        const mm = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+        const yyyy = dateObj.getUTCFullYear();
+        return `${dd}/${mm}/${yyyy}`;
+      }
+      // Formato DD/MM/YYYY o D/M/YY
+      const dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if (dmy) {
+        const dd = dmy[1].padStart(2, '0');
+        const mm = dmy[2].padStart(2, '0');
+        let yyyy = dmy[3];
+        if (yyyy.length === 2) yyyy = '20' + yyyy;
+        return `${dd}/${mm}/${yyyy}`;
+      }
+      // Formato YYYY-MM-DD
+      const ymd = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+      if (ymd) {
+        return `${ymd[3].padStart(2, '0')}/${ymd[2].padStart(2, '0')}/${ymd[1]}`;
+      }
+      return str;
+    }
+
+    function cleanPhones(telPart, telCel) {
+      const isValidPhone = (v) => {
+        if (v === undefined || v === null) return false;
+        const s = String(v).trim();
+        if (['-', '--', '---', '0', '1', '11', '00', 's/d', 'sd', 'sin datos', 'no tiene', ''].includes(s.toLowerCase())) {
+          return false;
+        }
+        const digits = s.replace(/\D/g, '');
+        return digits.length >= 6;
+      };
+      const list = [];
+      if (isValidPhone(telCel)) list.push(String(telCel).trim());
+      if (isValidPhone(telPart)) {
+        const p = String(telPart).trim();
+        if (!list.includes(p)) list.push(p);
+      }
+      return list.length > 0 ? list.join(' / ') : 'S/D';
+    }
+
+    function normalizeTurnoRecord(item, index) {
+      const rawPhone = String(item.telefono || '').trim();
+      const cleanPhone = ['-', '--', '---', '0', '1', '11', '00', 's/d', 'sd', ''].includes(rawPhone.toLowerCase())
+        ? 'S/D'
+        : rawPhone;
+
+      const validEstados = ['A Confirmar', 'Confirmado', 'Cancelado'];
+      const estado = validEstados.includes(item.estado) ? item.estado : 'A Confirmar';
+      const { horaDesde, horaHasta } = parseTimeRange(item.horaDesde || '09:00', item.horaHasta || '');
+
+      let dniStr = String(item.dni || 'S/D').trim();
+      if (dniStr && /^\d{6,9}$/.test(dniStr)) {
+        dniStr = `DNI ${dniStr}`;
+      }
+
+      return {
+        id: item.id || `turno-${index + 1}-${Date.now()}`,
+        fecha: normalizeDateDDMMYYYY(item.fecha, '02/11/2026'),
+        horaDesde,
+        horaHasta,
+        paciente: String(item.paciente || 'SIN NOMBRE').trim(),
+        dni: dniStr || 'S/D',
+        entidad: String(item.entidad || 'PARTICULAR').trim(),
+        medico: String(item.medico || 'VIRGOLINI AGUSTIN MARIO').trim(),
+        practicas: Array.isArray(item.practicas) && item.practicas.length > 0
+          ? item.practicas.map(p => String(p).trim()).filter(Boolean)
+          : [String(item.practicas || 'PRÁCTICA').trim()],
+        cantidad: Number(item.cantidad) || (Array.isArray(item.practicas) ? item.practicas.length : 1),
+        email: String(item.email || '').trim(),
+        telefono: cleanPhone,
+        observaciones: String(item.observaciones || '').trim(),
+        usuarioReserva: String(item.usuarioReserva || '').trim(),
+        estado
+      };
+    }
+
+    function detectSameSlot() {
+      const slotMap = {};
+      allTurnos.forEach(t => {
+        const key = `${t.fecha}_${t.horaDesde}`;
+        slotMap[key] = (slotMap[key] || 0) + 1;
+      });
+      allTurnos.forEach(t => {
+        t.esSimultaneo = slotMap[`${t.fecha}_${t.horaDesde}`] > 1;
+      });
+    }
+
+    // =========================================================================
+    // PERSISTENCIA Y BOTÓN "RESTAURAR ORIGINALES" (SIN CONFIRM NI BLOQUEOS)
+    // =========================================================================
+    function loadDataFromStorage() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        const savedFile = localStorage.getItem(STORAGE_FILENAME_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            allTurnos = parsed.map(normalizeTurnoRecord);
+            detectSameSlot();
+            if (savedFile) {
+              document.getElementById('labelOrigenDatos').textContent = savedFile;
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        console.error('Error leyendo localStorage:', e);
+      }
+      const clonedDefaults = JSON.parse(JSON.stringify(DEFAULT_TURNOS));
+      allTurnos = clonedDefaults.map(normalizeTurnoRecord);
+      detectSameSlot();
+      saveDataToStorage('controlturnosreservados (4).csv (Original)');
+    }
+
+    function saveDataToStorage(fileNameLabel) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(allTurnos));
+        if (fileNameLabel) {
+          localStorage.setItem(STORAGE_FILENAME_KEY, fileNameLabel);
+        }
+      } catch (e) {
+        console.error('Error guardando localStorage:', e);
+      }
+    }
+
+    function resetToDefaultData() {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(STORAGE_FILENAME_KEY);
+      } catch (e) {
+        console.error(e);
+      }
+
+      userEditedHeaderManually = false;
+      userEditedFilenameManually = false;
+
+      // Clonar profundamente DEFAULT_TURNOS para descartar cualquier edición previa
+      const freshCopy = JSON.parse(JSON.stringify(DEFAULT_TURNOS));
+      allTurnos = freshCopy.map(normalizeTurnoRecord);
+      detectSameSlot();
+      saveDataToStorage('controlturnosreservados (4).csv (Original)');
+
+      // Limpiar input file y todos los filtros
+      const fileInput = document.getElementById('fileInput');
+      if (fileInput) fileInput.value = '';
+      clearAllFiltersSilent();
+
+      populateMedicosAndPracticasDropdowns();
+      applyFilters();
+
+      document.getElementById('labelOrigenDatos').textContent = 'controlturnosreservados (4).csv (Original)';
+      showToast('Datos originales restaurados correctamente (56 turnos)', 'success');
+    }
+
+    function populateMedicosAndPracticasDropdowns() {
+      // 1. Poblar selector de Profesionales / Médicos
+      const medicosSet = new Set();
+      allTurnos.forEach(t => {
+        if (t.medico && t.medico.trim()) medicosSet.add(t.medico.trim());
+      });
+      const medicos = [...medicosSet].sort();
+      const selectMed = document.getElementById('filterMedico');
+      if (selectMed) {
+        const currentMed = selectMed.value;
+        selectMed.innerHTML = `<option value="">Todos los profesionales (${medicos.length})</option>` +
+          medicos.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+        if (medicos.includes(currentMed)) selectMed.value = currentMed;
+      }
+
+      // 2. Poblar selector de Prácticas
+      const practicasSet = new Set();
+      allTurnos.forEach(t => {
+        (t.practicas || []).forEach(p => {
+          if (p && p.trim()) practicasSet.add(p.trim());
+        });
+      });
+      const practicas = [...practicasSet].sort();
+      const select = document.getElementById('filterPracticaSelect');
+      const current = select.value;
+      select.innerHTML = `<option value="">Todas las prácticas (${practicas.length})</option>` +
+        practicas.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+      if (practicas.includes(current)) select.value = current;
+
+      updateDynamicHeaderAndFilename(allTurnos);
+    }
+
+    function switchTab(tab) {
+      const tabTurnos = document.getElementById('tabContentTurnos');
+      const tabPdf = document.getElementById('tabContentPdf');
+      const btnTurnos = document.getElementById('tabBtnTurnos');
+      const btnPdf = document.getElementById('tabBtnPdf');
+
+      if (tab === 'turnos') {
+        tabTurnos.classList.remove('hidden');
+        tabPdf.classList.add('hidden');
+        btnTurnos.className = 'px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 border-sky-600 text-sky-700 bg-white rounded-t-lg flex items-center gap-2';
+        btnPdf.className = 'px-4 py-2.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-slate-600 hover:text-slate-900 flex items-center gap-2';
+      } else {
+        tabTurnos.classList.add('hidden');
+        tabPdf.classList.remove('hidden');
+        btnPdf.className = 'px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 border-sky-600 text-sky-700 bg-white rounded-t-lg flex items-center gap-2';
+        btnTurnos.className = 'px-4 py-2.5 text-xs sm:text-sm font-medium border-b-2 border-transparent text-slate-600 hover:text-slate-900 flex items-center gap-2';
+      }
+    }
+
+    // =========================================================================
+    // FILTRADO EN TIEMPO REAL
+    // =========================================================================
+    function clearAllFiltersSilent() {
+      const elMed = document.getElementById('filterMedico');
+      if (elMed) elMed.value = '';
+      document.getElementById('filterFecha').value = '';
+      document.getElementById('filterHoraDesde').value = '';
+      document.getElementById('filterHoraHasta').value = '';
+      document.getElementById('filterPaciente').value = '';
+      document.getElementById('filterDni').value = '';
+      document.getElementById('filterTelefono').value = '';
+      document.getElementById('filterPracticaSelect').value = '';
+      document.getElementById('filterPracticaText').value = '';
+      document.getElementById('filterObservaciones').value = '';
+      document.getElementById('filterEstado').value = '';
+    }
+
+    function clearAllFilters() {
+      clearAllFiltersSilent();
+      userEditedHeaderManually = false;
+      userEditedFilenameManually = false;
+      applyFilters();
+      showToast('Filtros limpiados.', 'info');
+    }
+
+    function applyFilters() {
+      const fMedico = (document.getElementById('filterMedico')?.value || '').trim().toLowerCase();
+      const fFecha = document.getElementById('filterFecha').value.trim().toLowerCase();
+      const fHoraDesde = document.getElementById('filterHoraDesde').value.trim();
+      const fHoraHasta = document.getElementById('filterHoraHasta').value.trim();
+      const fPaciente = normalizeText(document.getElementById('filterPaciente').value);
+      const fDni = normalizeText(document.getElementById('filterDni').value);
+      const fTelefono = document.getElementById('filterTelefono').value.trim().toLowerCase();
+      const fPracticaSel = document.getElementById('filterPracticaSelect').value.trim().toLowerCase();
+      const fPracticaTxt = normalizeText(document.getElementById('filterPracticaText').value);
+      const fObservaciones = normalizeText(document.getElementById('filterObservaciones').value);
+      const fEstado = document.getElementById('filterEstado').value.trim();
+
+      filteredTurnos = allTurnos.filter(t => {
+        if (fMedico && (t.medico || '').toLowerCase() !== fMedico) return false;
+        if (fFecha && !t.fecha.toLowerCase().includes(fFecha)) return false;
+        if (fHoraDesde && t.horaDesde < fHoraDesde) return false;
+        if (fHoraHasta && t.horaDesde > fHoraHasta) return false;
+        if (fPaciente && !normalizeText(t.paciente).includes(fPaciente)) return false;
+        if (fDni && !normalizeText(t.dni).includes(fDni)) return false;
+        if (fTelefono && !t.telefono.toLowerCase().includes(fTelefono)) return false;
+
+        const practicasNorm = normalizeText((t.practicas || []).join(' '));
+        if (fPracticaSel && !(t.practicas || []).some(p => p.toLowerCase() === fPracticaSel)) return false;
+        if (fPracticaTxt && !practicasNorm.includes(fPracticaTxt)) return false;
+
+        if (fObservaciones && !normalizeText(t.observaciones).includes(fObservaciones)) return false;
+        if (fEstado && t.estado !== fEstado) return false;
+
+        return true;
+      });
+
+      filteredTurnos.sort((a, b) => a.horaDesde.localeCompare(b.horaDesde));
+
+      updateCounters();
+      renderTurnosTable();
+      renderPdfPreviewTable();
+    }
+
+    function updateCounters() {
+      const total = allTurnos.length;
+      const pendientes = allTurnos.filter(t => t.estado === 'A Confirmar').length;
+      const confirmados = allTurnos.filter(t => t.estado === 'Confirmado').length;
+
+      document.getElementById('countTotal').textContent = total;
+      document.getElementById('countPendientes').textContent = pendientes;
+      document.getElementById('countConfirmados').textContent = confirmados;
+
+      const totalPracticasFiltradas = filteredTurnos.reduce((acc, t) => acc + (t.practicas?.length || 1), 0);
+      document.getElementById('badgeMostrando').textContent =
+        `Mostrando ${filteredTurnos.length} de ${total} turnos (${totalPracticasFiltradas} prácticas)`;
+
+      document.getElementById('pdfPreviewTotalTurnos').textContent = filteredTurnos.length;
+      document.getElementById('pdfPreviewTotalPracticas').textContent = totalPracticasFiltradas;
+
+      updateDynamicHeaderAndFilename(filteredTurnos);
+    }
+
+    function clearAllFilters() {
+      clearAllFiltersSilent();
+      applyFilters();
+      showToast('Filtros limpiados.', 'info');
+    }
+
+    function applyFilters() {
+      const fFecha = document.getElementById('filterFecha').value.trim().toLowerCase();
+      const fHoraDesde = document.getElementById('filterHoraDesde').value.trim();
+      const fHoraHasta = document.getElementById('filterHoraHasta').value.trim();
+      const fPaciente = normalizeText(document.getElementById('filterPaciente').value);
+      const fDni = normalizeText(document.getElementById('filterDni').value);
+      const fTelefono = document.getElementById('filterTelefono').value.trim().toLowerCase();
+      const fPracticaSel = document.getElementById('filterPracticaSelect').value.trim().toLowerCase();
+      const fPracticaTxt = normalizeText(document.getElementById('filterPracticaText').value);
+      const fObservaciones = normalizeText(document.getElementById('filterObservaciones').value);
+      const fEstado = document.getElementById('filterEstado').value.trim();
+
+      filteredTurnos = allTurnos.filter(t => {
+        if (fFecha && !t.fecha.toLowerCase().includes(fFecha)) return false;
+        if (fHoraDesde && t.horaDesde < fHoraDesde) return false;
+        if (fHoraHasta && t.horaDesde > fHoraHasta) return false;
+        if (fPaciente && !normalizeText(t.paciente).includes(fPaciente)) return false;
+        if (fDni && !normalizeText(t.dni).includes(fDni)) return false;
+        if (fTelefono && !t.telefono.toLowerCase().includes(fTelefono)) return false;
+
+        const practicasNorm = normalizeText((t.practicas || []).join(' '));
+        if (fPracticaSel && !(t.practicas || []).some(p => p.toLowerCase() === fPracticaSel)) return false;
+        if (fPracticaTxt && !practicasNorm.includes(fPracticaTxt)) return false;
+
+        if (fObservaciones && !normalizeText(t.observaciones).includes(fObservaciones)) return false;
+        if (fEstado && t.estado !== fEstado) return false;
+
+        return true;
+      });
+
+      filteredTurnos.sort((a, b) => a.horaDesde.localeCompare(b.horaDesde));
+      displayRowsWithGaps = buildAgendaWithGaps(filteredTurnos);
+
+      updateCounters();
+      renderTurnosTable();
+      renderPdfPreviewTable();
+    }
+
+    function updateCounters() {
+      const total = allTurnos.length;
+      const pendientes = allTurnos.filter(t => t.estado === 'A Confirmar').length;
+      const confirmados = allTurnos.filter(t => t.estado === 'Confirmado').length;
+
+      document.getElementById('countTotal').textContent = total;
+      document.getElementById('countPendientes').textContent = pendientes;
+      document.getElementById('countConfirmados').textContent = confirmados;
+
+      const totalPracticasFiltradas = filteredTurnos.reduce((acc, t) => acc + (t.practicas?.length || 1), 0);
+      const bachesCount = currentDetectedGaps.length;
+      document.getElementById('badgeMostrando').textContent =
+        `Mostrando ${filteredTurnos.length} de ${total} turnos (${totalPracticasFiltradas} prácticas) + ${bachesCount} ${bachesCount === 1 ? 'turno disponible' : 'turnos disponibles'}`;
+
+      document.getElementById('pdfPreviewTotalTurnos').textContent = filteredTurnos.length;
+      document.getElementById('pdfPreviewTotalPracticas').textContent = totalPracticasFiltradas;
+
+      updateDynamicHeaderAndFilename(filteredTurnos);
+    }
+
+    // =========================================================================
+    // RENDERIZADO DE LA TABLA ADMINISTRATIVA Y VISTA PREVIA PDF
+    // =========================================================================
+    function getEntidadBadge(entidad) {
+      const e = (entidad || '').toUpperCase();
+      if (e.includes('OSDE')) return 'bg-blue-50 text-blue-700 border-blue-200';
+      if (e.includes('PAMI')) return 'bg-teal-50 text-teal-700 border-teal-200';
+      if (e.includes('SMG')) return 'bg-rose-50 text-rose-700 border-rose-200';
+      if (e.includes('GALENO')) return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      return 'bg-slate-100 text-slate-700 border-slate-200';
+    }
+
+    function getEstadoStyle(estado) {
+      if (estado === 'Confirmado') {
+        return {
+          select: 'bg-emerald-50 border-emerald-300 text-emerald-800',
+          row: 'bg-emerald-50/20'
+        };
+      }
+      if (estado === 'Cancelado') {
+        return {
+          select: 'bg-rose-50 border-rose-300 text-rose-800',
+          row: 'bg-rose-50/20 opacity-60'
+        };
+      }
+      return {
+        select: 'bg-amber-50 border-amber-300 text-amber-800',
+        row: 'bg-white'
+      };
+    }
+
+    function buildWhatsAppUrl(turno) {
+      if (!turno.telefono || turno.telefono === 'S/D') return null;
+      const firstPhone = turno.telefono.split('/')[0].trim();
+      let digits = firstPhone.replace(/\D/g, '');
+      if (digits.length < 6) return null;
+
+      if (digits.startsWith('5454')) digits = '549' + digits.slice(4);
+      else if (digits.startsWith('54') && !digits.startsWith('549')) digits = '549' + digits.slice(2);
+      else if (digits.length === 8) digits = '54911' + digits;
+      else if (digits.length === 10) digits = '549' + digits;
+
+      const practicas = (turno.practicas || []).join(', ');
+      const texto = `Hola ${turno.paciente}, nos comunicamos de *Argus Diagnóstico Médico (Sede Maschwitz)* para confirmar su turno del día *${turno.fecha}* a las *${turno.horaDesde} hs* con el Dr. ${turno.medico} (${practicas}).`;
+      return `https://wa.me/${digits}?text=${encodeURIComponent(texto)}`;
+    }
+
+    function renderTurnosTable() {
+      const tbody = document.getElementById('turnosTableBody');
+      if (displayRowsWithGaps.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" class="py-10 text-center text-slate-400">
+              No se encontraron turnos con los filtros aplicados.
+            </td>
+          </tr>`;
+        return;
+      }
+
+      tbody.innerHTML = displayRowsWithGaps.map(t => {
+        // Renglón único y limpio para "TURNO DISPONIBLE" en Blanco y Negro (ByN)
+        if (t.isGap) {
+          return `
+            <tr class="bg-gray-200 border-y-2 border-slate-900">
+              <td class="py-2.5 px-3.5 align-middle font-mono font-bold text-slate-950 text-xs sm:text-sm border-l-4 border-slate-900 whitespace-nowrap">
+                ${escapeHtml(t.horaDesde)} - ${escapeHtml(t.horaHasta)}
+              </td>
+              <td colspan="5" class="py-2.5 px-3.5 align-middle font-bold text-slate-950 text-xs sm:text-sm uppercase tracking-wider">
+                TURNO DISPONIBLE
+              </td>
+            </tr>
+          `;
+        }
+
+        const st = getEstadoStyle(t.estado);
+        const waUrl = buildWhatsAppUrl(t);
+
+        return `
+          <tr class="${st.row} hover:bg-slate-50 transition">
+            <!-- Horario -->
+            <td class="py-3 px-3.5 align-top font-mono">
+              <div class="font-bold text-slate-900">${escapeHtml(t.horaDesde)} - ${escapeHtml(t.horaHasta)}</div>
+              <div class="text-[11px] text-slate-400">${escapeHtml(t.fecha)}</div>
+              ${t.esSimultaneo ? `<span class="inline-block mt-1 text-[10px] font-sans font-semibold bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded">Mismo horario</span>` : ''}
+            </td>
+
+            <!-- Paciente / DNI / Entidad -->
+            <td class="py-3 px-3.5 align-top">
+              <div class="font-bold text-slate-900">${escapeHtml(t.paciente)}</div>
+              <div class="flex flex-wrap items-center gap-1.5 mt-1">
+                <span class="font-mono text-xs text-slate-600">${escapeHtml(t.dni)}</span>
+                <span class="text-[11px] font-semibold px-2 py-0.5 rounded border ${getEntidadBadge(t.entidad)}">${escapeHtml(t.entidad)}</span>
+              </div>
+            </td>
+
+            <!-- Teléfono -->
+            <td class="py-3 px-3.5 align-top">
+              <div class="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value="${escapeHtml(t.telefono)}"
+                  onchange="updateTurnoField('${t.id}', 'telefono', this.value)"
+                  class="w-32 font-mono text-xs px-2 py-1 rounded border border-slate-200 bg-slate-50 focus:bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  title="Editar teléfono"
+                />
+                ${waUrl ? `
+                  <a href="${waUrl}" target="_blank" rel="noopener noreferrer"
+                     onclick="if('${t.estado}'==='A Confirmar') updateTurnoField('${t.id}', 'estado', 'Confirmado')"
+                     class="w-7 h-7 rounded bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center shrink-0 transition"
+                     title="Enviar WhatsApp de confirmación">
+                    <i class="fa-brands fa-whatsapp text-sm"></i>
+                  </a>
+                ` : ''}
+              </div>
+            </td>
+
+            <!-- Prácticas Asignadas -->
+            <td class="py-3 px-3.5 align-top">
+              <ul class="space-y-1">
+                ${(t.practicas || []).map(p => `
+                  <li class="text-xs font-medium text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/80">
+                    ${escapeHtml(p)}
+                  </li>
+                `).join('')}
+              </ul>
+            </td>
+
+            <!-- Observaciones Editables -->
+            <td class="py-3 px-3.5 align-top">
+              <textarea
+                rows="2"
+                onchange="updateTurnoField('${t.id}', 'observaciones', this.value)"
+                placeholder="Sin observaciones..."
+                class="w-full text-xs p-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-500 resize-none"
+              >${escapeHtml(t.observaciones)}</textarea>
+            </td>
+
+            <!-- Estado del Turno -->
+            <td class="py-3 px-3.5 align-top text-center">
+              <select
+                onchange="updateTurnoField('${t.id}', 'estado', this.value)"
+                class="w-full px-2.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer focus:outline-none ${st.select}">
+                <option value="A Confirmar" ${t.estado === 'A Confirmar' ? 'selected' : ''}>A Confirmar</option>
+                <option value="Confirmado" ${t.estado === 'Confirmado' ? 'selected' : ''}>Confirmado</option>
+                <option value="Cancelado" ${t.estado === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
+              </select>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderPdfPreviewTable() {
+      const tbody = document.getElementById('pdfPreviewTableBody');
+      if (displayRowsWithGaps.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-slate-400">Sin turnos para mostrar en la planilla.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = displayRowsWithGaps.map(t => {
+        if (t.isGap) {
+          return `
+            <tr class="bg-gray-200 border-y-2 border-black">
+              <td class="font-mono font-bold whitespace-nowrap text-black py-2">
+                ${escapeHtml(t.horaDesde)} - ${escapeHtml(t.horaHasta)}
+              </td>
+              <td colspan="4" class="font-bold text-black uppercase tracking-wider py-2">
+                TURNO DISPONIBLE
+              </td>
+            </tr>
+          `;
+        }
+
+        return `
+        <tr>
+          <td class="font-mono font-bold whitespace-nowrap">
+            <div>${escapeHtml(t.horaDesde)}-</div>
+            <div>${escapeHtml(t.horaHasta)}</div>
+          </td>
+          <td>
+            <div class="font-bold uppercase">${escapeHtml(t.paciente)}</div>
+            <div>${escapeHtml(t.dni)} <span class="ml-2 font-semibold uppercase">${escapeHtml(t.entidad)}</span></div>
+            <div>${escapeHtml(t.telefono)}/</div>
+            ${t.observaciones ? `<div class="text-slate-700 mt-0.5">${escapeHtml(t.observaciones)}</div>` : ''}
+          </td>
+          <td class="font-mono">S/D/</td>
+          <td>
+            ${(t.practicas || []).map(p => `<div class="font-semibold uppercase">${escapeHtml(p)}</div>`).join('')}
+            <div class="text-slate-700 mt-0.5">SIN REGION &nbsp; Normal</div>
+            <div class="font-semibold mt-0.5">NO &nbsp; NO &nbsp; ${escapeHtml(t.estado)}</div>
+          </td>
+          <td class="text-right font-mono">$0.00</td>
+        </tr>
+      `;
+      }).join('');
+    }
+
+    function updateTurnoField(id, field, value) {
+      const idx = allTurnos.findIndex(t => t.id === id);
+      if (idx === -1) return;
+      allTurnos[idx][field] = value;
+      saveDataToStorage();
+      applyFilters();
+    }
+
+    // =========================================================================
+    // LECTOR ULTRA-RESILIENTE PARA EXCEL (.XLSX / .XLS) Y CSV (LATIN-1 / UTF-8)
+    // =========================================================================
+    function handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const fileName = file.name;
+      const lowerName = fileName.toLowerCase();
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        try {
+          const buffer = e.target.result;
+          let rows2D = [];
+
+          if (lowerName.endsWith('.csv') || lowerName.endsWith('.txt')) {
+            // 1. Intentar decodificar como UTF-8 estricto; si falla, usar ISO-8859-1 (Latin-1 de sistemas médicos)
+            let text = '';
+            try {
+              text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+            } catch (utfErr) {
+              text = new TextDecoder('iso-8859-1').decode(buffer);
+            }
+            const parsed = Papa.parse(text, { header: false, skipEmptyLines: true });
+            rows2D = parsed.data || [];
+          } else {
+            // 2. Archivo Excel (.xlsx / .xls)
+            const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true });
+            for (const sheetName of workbook.SheetNames) {
+              const sheet = workbook.Sheets[sheetName];
+              const sheetRows = XLSX.utils.sheet_to_json(sheet, {
+                header: 1,
+                raw: false,
+                dateNF: 'dd/mm/yyyy',
+                defval: ''
+              });
+              if (sheetRows && sheetRows.length > 0) {
+                rows2D = sheetRows;
+                break;
+              }
+            }
+          }
+
+          process2DRows(rows2D, fileName);
+        } catch (err) {
+          console.error('Error al procesar el archivo:', err);
+          showToast('Error al leer el archivo. Verifique que sea un Excel (.xlsx/.xls) o CSV válido.', 'error');
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+      event.target.value = '';
+    }
+
+    // Diccionario de sinónimos para reconocer columnas aunque cambien acentos, mayúsculas o nombres
+    const HEADER_SYNONYMS = {
+      fecha: ['fecha turno', 'fecha de turno', 'fecha', 'dia', 'fec turno', 'fec'],
+      horaDesde: ['hora desde', 'desde', 'hora inicio', 'hora', 'horario', 'turno', 'hr desde', 'hs desde', 'hs'],
+      horaHasta: ['hora hasta', 'hasta', 'hora fin', 'hr hasta', 'hs hasta'],
+      paciente: ['paciente', 'nombre de paciente', 'nombre paciente', 'apellido y nombre', 'nombre y apellido', 'pacientes', 'afiliado', 'beneficiario', 'titular', 'paciente / entidad / telefonos', 'paciente / entidad'],
+      apellido: ['apellido', 'apellidos', 'apellido paciente'],
+      nombre: ['nombre', 'nombres', 'nombre pila'],
+      dni: ['documento paciente', 'documento', 'dni', 'nro documento', 'numero de documento', 'numero documento', 'doc', 'dni paciente', 'nro doc', 'cuil', 'dni / cuil'],
+      entidad: ['entidad', 'obra social', 'cobertura', 'prepaga', 'financiador', 'os', 'mutual'],
+      practica: ['practica', 'prestacion', 'estudio', 'practicas', 'prestaciones', 'servicio', 'examen', 'prestacion / region / cond clinica / estado', 'prestacion / region'],
+      cantidad: ['cantidad', 'cant'],
+      email: ['e-mail paciente', 'email paciente', 'e mail paciente', 'email', 'e-mail', 'correo', 'mail'],
+      telParticular: ['telefono particular', 'tel particular', 'telefono fijo', 'telefono', 'telefonos', 'tel', 'contacto', 'telefono 1'],
+      telCelular: ['telefono celular', 'tel celular', 'celular', 'movil', 'cel', 'whatsapp', 'wsp', 'telefono 2'],
+      observaciones: ['observaciones', 'observacion', 'obs', 'notas', 'comentario', 'comentarios', 'preparacion', 'nota'],
+      usuarioReserva: ['usuario reserva', 'usuario', 'operador', 'recepcion'],
+      medico: ['medico actuante', 'medico', 'profesional', 'doctor', 'prestador']
+    };
+
+    function matchHeaderField(cellText) {
+      const norm = normalizeText(cellText);
+      if (!norm) return null;
+
+      // Coincidencia exacta primero
+      for (const [field, list] of Object.entries(HEADER_SYNONYMS)) {
+        if (list.includes(norm)) return field;
+      }
+      // Coincidencia parcial controlada
+      for (const [field, list] of Object.entries(HEADER_SYNONYMS)) {
+        for (const alias of list) {
+          if (alias.length >= 4 && norm.includes(alias)) {
+            return field;
+          }
+        }
+      }
+      return null;
+    }
+
+    function process2DRows(rows2D, fileName) {
+      if (!rows2D || rows2D.length === 0) {
+        showToast('El archivo seleccionado está vacío.', 'error');
+        return;
+      }
+
+      // 1. Extraer posible Fecha o Profesional de las filas superiores de título (si existen)
+      let metaFecha = '';
+      let metaMedico = '';
+      const scanLimit = Math.min(rows2D.length, 30);
+
+      for (let r = 0; r < Math.min(rows2D.length, 10); r++) {
+        const rowStr = (rows2D[r] || []).join(' ');
+        const dateMatch = rowStr.match(/(\d{2}[\/\-]\d{2}[\/\-]\d{4})/);
+        if (dateMatch && !metaFecha) metaFecha = dateMatch[1].replace(/\-/g, '/');
+
+        const profMatch = rowStr.match(/Profesional\s*:\s*([^|\n\r]+)/i);
+        if (profMatch && !metaMedico) metaMedico = profMatch[1].trim();
+      }
+
+      // 2. Auto-detectar en qué fila están los encabezados reales de la tabla
+      let headerRowIndex = -1;
+      let bestMatchScore = 0;
+      let bestColMap = {};
+
+      for (let r = 0; r < scanLimit; r++) {
+        const row = rows2D[r];
+        if (!Array.isArray(row)) continue;
+
+        let score = 0;
+        const currentMap = {};
+
+        row.forEach((cell, colIdx) => {
+          const field = matchHeaderField(cell);
+          if (field && currentMap[field] === undefined) {
+            currentMap[field] = colIdx;
+            score++;
+          }
+        });
+
+        if (score > bestMatchScore && score >= 2) {
+          bestMatchScore = score;
+          headerRowIndex = r;
+          bestColMap = currentMap;
+        }
+      }
+
+      // 3. Si el Excel no tenía fila de encabezado estándar o el nombre de la columna Paciente era distinto,
+      //    inferir automáticamente las columnas inspeccionando el contenido de las filas de datos.
+      const dataStartRow = headerRowIndex >= 0 ? headerRowIndex + 1 : 0;
+
+      if (bestColMap.paciente === undefined && bestColMap.apellido === undefined) {
+        const inferred = inferColumnsFromData(rows2D, dataStartRow, bestColMap);
+        bestColMap = { ...inferred, ...bestColMap };
+      }
+
+      // 4. Recorrer las filas de datos y agrupar por turno
+      const grouped = new Map();
+      let totalPracticasCount = 0;
+
+      for (let r = dataStartRow; r < rows2D.length; r++) {
+        const row = rows2D[r];
+        if (!Array.isArray(row)) continue;
+
+        // Ignorar filas completamente vacías o pies de página
+        const nonEmptyCells = row.filter(c => String(c ?? '').trim() !== '');
+        if (nonEmptyCells.length === 0) continue;
+
+        const joinedRow = nonEmptyCells.join(' ').trim();
+        if (/^(ARGUS DIAGNOSTICO|P[aá]gina\s+\d+|Total\s*:)/i.test(joinedRow)) continue;
+
+        const getVal = (field) => {
+          const idx = bestColMap[field];
+          return idx !== undefined && row[idx] !== undefined && row[idx] !== null
+            ? String(row[idx]).trim()
+            : '';
+        };
+
+        // Obtener Nombre del Paciente (de columna "paciente", o combinando "apellido" + "nombre")
+        let paciente = getVal('paciente');
+        if (!paciente && (bestColMap.apellido !== undefined || bestColMap.nombre !== undefined)) {
+          paciente = `${getVal('apellido')} ${getVal('nombre')}`.trim();
+        }
+
+        let dni = getVal('dni');
+        let entidad = getVal('entidad');
+        let telParticular = getVal('telParticular');
+        let telCelular = getVal('telCelular');
+        let observaciones = getVal('observaciones');
+
+        // Si la celda de paciente viene combinada estilo planilla PDF (con saltos de línea o DNI incluido)
+        if (paciente && (paciente.includes('\n') || /DNI\s*\d{6,9}/i.test(paciente))) {
+          const parsedBlock = parseCombinedPatientBlock(paciente);
+          paciente = parsedBlock.paciente || paciente;
+          if (!dni && parsedBlock.dni) dni = parsedBlock.dni;
+          if (!entidad && parsedBlock.entidad) entidad = parsedBlock.entidad;
+          if (!telParticular && parsedBlock.telefono) telParticular = parsedBlock.telefono;
+          if (!observaciones && parsedBlock.observaciones) observaciones = parsedBlock.observaciones;
+        }
+
+        // Si aún no hay paciente válido o es una repetición del encabezado, saltar fila
+        if (!paciente || matchHeaderField(paciente) === 'paciente') continue;
+
+        const rawFecha = getVal('fecha') || metaFecha || '02/11/2026';
+        const fecha = normalizeDateDDMMYYYY(rawFecha, metaFecha || '02/11/2026');
+
+        const rawDesde = getVal('horaDesde');
+        const rawHasta = getVal('horaHasta');
+        const { horaDesde, horaHasta } = parseTimeRange(rawDesde, rawHasta);
+
+        let practica = getVal('practica') || 'PRÁCTICA ASIGNADA';
+        // Limpiar sufijos de planilla PDF si vienen en la misma celda
+        practica = practica.replace(/\bSIN REGION\b[\s\S]*/i, '').trim() || 'PRÁCTICA ASIGNADA';
+
+        const medico = getVal('medico') || metaMedico || 'VIRGOLINI AGUSTIN MARIO';
+        const email = getVal('email');
+        const usuarioReserva = getVal('usuarioReserva');
+        const telefono = cleanPhones(telParticular, telCelular);
+
+        if (dni && /^\d{6,9}$/.test(dni)) {
+          dni = `DNI ${dni}`;
+        } else if (!dni) {
+          dni = 'S/D';
+        }
+
+        if (!entidad) entidad = 'PARTICULAR';
+
+        const groupKey = `${fecha}_${horaDesde}_${horaHasta}_${dni}_${paciente}`.toUpperCase();
+        totalPracticasCount++;
+
+        if (!grouped.has(groupKey)) {
+          grouped.set(groupKey, {
+            id: `turno-${grouped.size + 1}-${Date.now()}`,
+            fecha,
+            horaDesde,
+            horaHasta,
+            paciente,
+            dni,
+            entidad,
+            medico,
+            practicas: [practica],
+            cantidad: 1,
+            email,
+            telefono,
+            observaciones,
+            usuarioReserva,
+            estado: 'A Confirmar'
+          });
+        } else {
+          const item = grouped.get(groupKey);
+          if (practica && !item.practicas.includes(practica)) {
+            item.practicas.push(practica);
+          }
+          item.cantidad = item.practicas.length;
+          if (item.telefono === 'S/D' && telefono !== 'S/D') {
+            item.telefono = telefono;
+          }
+          if (observaciones && !item.observaciones.includes(observaciones)) {
+            item.observaciones = item.observaciones
+              ? `${item.observaciones} | ${observaciones}`
+              : observaciones;
+          }
+        }
+      }
+
+      const result = Array.from(grouped.values());
+      if (result.length === 0) {
+        showToast('No se encontraron pacientes en el archivo. Verifique que la hoja tenga datos de turnos.', 'error');
+        return;
+      }
+
+      result.sort((a, b) => a.horaDesde.localeCompare(b.horaDesde));
+      allTurnos = result.map(normalizeTurnoRecord);
+      detectSameSlot();
+      saveDataToStorage(fileName);
+
+      // Reiniciar banderas de edición manual para que tome el Profesional y Fecha del nuevo archivo cargado
+      userEditedHeaderManually = false;
+      userEditedFilenameManually = false;
+
+      // Limpiar filtros activos para que los nuevos turnos se vean inmediatamente
+      clearAllFiltersSilent();
+      populateMedicosAndPracticasDropdowns();
+      applyFilters();
+
+      document.getElementById('labelOrigenDatos').textContent = fileName;
+      const autoPdfName = getFinalPdfFilename();
+      showToast(`Cargado: ${allTurnos.length} turnos (${totalPracticasCount} prácticas) → ${autoPdfName}`, 'success');
+    }
+
+    // Desglosa celdas combinadas tipo "ALARCON, VERONICA \n DNI 11016910 PAMI \n 3484556264/"
+    function parseCombinedPatientBlock(text) {
+      const lines = String(text).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const out = { paciente: '', dni: '', entidad: '', telefono: '', observaciones: '' };
+      if (lines.length === 0) return out;
+
+      out.paciente = lines[0].replace(/DNI\s*\d+.*/i, '').trim();
+      const rest = lines.slice(1).join(' ');
+      const dniMatch = text.match(/(DNI\s*\d{6,9}|\b\d{7,8}\b)/i);
+      if (dniMatch) out.dni = dniMatch[1].toUpperCase();
+
+      const phoneMatch = rest.match(/(\+?\d[\d\s\-]{6,15})\s*\/?/);
+      if (phoneMatch) out.telefono = phoneMatch[1].trim();
+
+      return out;
+    }
+
+    // Inferencia inteligente de columnas cuando el Excel no tiene encabezados estándar
+    function inferColumnsFromData(rows2D, startRow, existingMap) {
+      const sampleRows = rows2D.slice(startRow, startRow + 15).filter(r => Array.isArray(r) && r.length > 0);
+      if (sampleRows.length === 0) return {};
+
+      const maxCols = Math.max(...sampleRows.map(r => r.length));
+      const inferred = {};
+      const usedCols = new Set(Object.values(existingMap));
+
+      for (let c = 0; c < maxCols; c++) {
+        if (usedCols.has(c)) continue;
+        const vals = sampleRows.map(r => String(r[c] ?? '').trim()).filter(Boolean);
+        if (vals.length === 0) continue;
+
+        // ¿Parece hora?
+        if (inferred.horaDesde === undefined && vals.some(v => /^\d{1,2}:\d{2}/.test(v))) {
+          inferred.horaDesde = c;
+          continue;
+        }
+        // ¿Parece fecha?
+        if (inferred.fecha === undefined && vals.some(v => /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(v))) {
+          inferred.fecha = c;
+          continue;
+        }
+        // ¿Parece DNI?
+        if (inferred.dni === undefined && vals.some(v => /^(DNI\s*)?\d{7,8}$/i.test(v))) {
+          inferred.dni = c;
+          continue;
+        }
+        // ¿Parece Práctica médica?
+        if (inferred.practica === undefined && vals.some(v => /(ECOGRAF|DOPPLER|RADIOLOG|MAMOGRAF|TOMOGRAF|RESONANC|CONSULTA)/i.test(v))) {
+          inferred.practica = c;
+          continue;
+        }
+        // ¿Parece Nombre de Paciente? (texto alfabético de 2 o más palabras)
+        if (inferred.paciente === undefined && vals.some(v => /^[A-ZÁÉÍÓÚÑa-záéíóúñ,\s]{5,45}$/.test(v) && v.trim().includes(' '))) {
+          inferred.paciente = c;
+        }
+      }
+      return inferred;
+    }
+
+    // =========================================================================
+    // GENERADOR DIRECTO DE ARCHIVO PDF (jsPDF + AutoTable)
+    // =========================================================================
+    function descargarPDFDirecto() {
+      const baseTurnos = filteredTurnos.length > 0 ? filteredTurnos : allTurnos;
+      if (baseTurnos.length === 0) {
+        showToast('No hay turnos para generar el PDF.', 'error');
+        return;
+      }
+      const rowsForPdf = displayRowsWithGaps.length > 0 ? displayRowsWithGaps : buildAgendaWithGaps(baseTurnos);
+
+      const btnHeader = document.getElementById('btnHeaderPdf');
+      const btnPreview = document.getElementById('btnPreviewPdf');
+      const origH = btnHeader ? btnHeader.innerHTML : '';
+      const origP = btnPreview ? btnPreview.innerHTML : '';
+
+      if (btnHeader) {
+        btnHeader.disabled = true;
+        btnHeader.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Generando PDF...</span>`;
+      }
+      if (btnPreview) {
+        btnPreview.disabled = true;
+        btnPreview.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>Generando PDF...</span>`;
+      }
+
+      setTimeout(() => {
+        try {
+          const { jsPDF } = window.jspdf;
+          const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+          // Tomar Profesional, Fecha y Filial dinámicos (de la barra editable sincronizada con el Excel/CSV activo)
+          const fechaAgenda = (document.getElementById('customPdfFecha')?.value || baseTurnos[0]?.fecha || '02/11/2026').trim();
+          const medicoFormateado = (document.getElementById('customPdfMedico')?.value || formatMedicoDisplay(baseTurnos[0]?.medico || 'SIN PROFESIONAL')).trim();
+          const filialAgenda = (document.getElementById('customPdfFilial')?.value || 'Sede Maschwitz').trim();
+
+          const gapRowIndices = new Set();
+          const tableBody = rowsForPdf.map((t, idx) => {
+            if (t.isGap) {
+              gapRowIndices.add(idx);
+              return [
+                `${t.horaDesde} - ${t.horaHasta}`,
+                { content: 'TURNO DISPONIBLE', colSpan: 4 }
+              ];
+            }
+
+            const colTurno = `${t.horaDesde}-\n${t.horaHasta}`;
+            const telStr = t.telefono && t.telefono !== 'S/D' ? `${t.telefono}/` : 'S/D/';
+            const obsStr = t.observaciones ? `\n${t.observaciones}` : '';
+            const colPaciente = `${t.paciente}\n${t.dni}   ${t.entidad}\n${telStr}${obsStr}`;
+            const colEdadPeso = 'S/D/';
+            const practicasStr = (t.practicas || []).join('\n');
+            const colPrestacion = `${practicasStr}\nSIN REGION   Normal\nNO NO ${t.estado || 'A Confirmar'}`;
+            const colImporte = '$0.00';
+
+            return [colTurno, colPaciente, colEdadPeso, colPrestacion, colImporte];
+          });
+
+          doc.autoTable({
+            head: [[
+              'Turno',
+              'Paciente / Entidad / Teléfonos',
+              'Edad/Peso',
+              'Prestación / Región / Cond. Clinica / Estado',
+              'Importe'
+            ]],
+            body: tableBody,
+            startY: 32,
+            margin: { top: 32, right: 10, bottom: 16, left: 10 },
+            theme: 'grid',
+            styles: {
+              font: 'helvetica',
+              fontSize: 8,
+              cellPadding: 2,
+              textColor: [15, 23, 42],
+              lineColor: [120, 120, 120],
+              lineWidth: 0.15,
+              valign: 'top',
+              overflow: 'linebreak'
+            },
+            headStyles: {
+              fillColor: [241, 245, 249],
+              textColor: [0, 0, 0],
+              fontStyle: 'bold',
+              lineColor: [0, 0, 0],
+              lineWidth: 0.3
+            },
+            columnStyles: {
+              0: { cellWidth: 22, fontStyle: 'bold' },
+              1: { cellWidth: 66 },
+              2: { cellWidth: 17 },
+              3: { cellWidth: 68 },
+              4: { cellWidth: 17, halign: 'right' }
+            },
+            didParseCell: function (data) {
+              // Renglón único en Blanco y Negro (ByN) para "TURNO DISPONIBLE"
+              if (data.section === 'body' && gapRowIndices.has(data.row.index)) {
+                data.cell.styles.fillColor = [230, 230, 230];
+                data.cell.styles.textColor = [0, 0, 0];
+                data.cell.styles.fontStyle = 'bold';
+                data.cell.styles.valign = 'middle';
+                data.cell.styles.lineColor = [0, 0, 0];
+                data.cell.styles.lineWidth = 0.35;
+              }
+            },
+            didDrawPage: function () {
+              doc.setFont('helvetica', 'bold');
+              doc.setFontSize(11);
+              doc.setTextColor(0, 0, 0);
+              doc.text('ARGUS DIAGNOSTICO MEDICO S.A.', 10, 12);
+
+              doc.setFontSize(10);
+              doc.text(`Turnos Asignados al ${fechaAgenda}`, 10, 17.5);
+
+              doc.setFontSize(9);
+              doc.text(`Profesional: ${medicoFormateado}`, 10, 23.5);
+              doc.text(`Fecha: ${fechaAgenda}`, 105, 23.5);
+              doc.text(`Filial: ${filialAgenda}`, 152, 23.5);
+
+              doc.setLineWidth(0.4);
+              doc.setDrawColor(0, 0, 0);
+              doc.line(10, 26.5, 200, 26.5);
+            }
+          });
+
+          const totalPages = doc.internal.getNumberOfPages();
+          for (let i = 1; i <= totalPages; i++) {
+            doc.setPage(i);
+            const pageHeight = doc.internal.pageSize.height || doc.internal.pageSize.getHeight();
+            doc.setLineWidth(0.3);
+            doc.setDrawColor(0, 0, 0);
+            doc.line(10, pageHeight - 12, 200, pageHeight - 12);
+
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(8.5);
+            doc.text('ARGUS DIAGNOSTICO MEDICO S.A.', 10, pageHeight - 7.5);
+            doc.text(`Página ${i} de ${totalPages}`, 200, pageHeight - 7.5, { align: 'right' });
+          }
+
+          const finalFileName = getFinalPdfFilename();
+          doc.save(finalFileName);
+          showToast(`Descargado: ${finalFileName}`, 'success');
+        } catch (err) {
+          console.error(err);
+          showToast('Error al generar el PDF.', 'error');
+        } finally {
+          if (btnHeader) {
+            btnHeader.disabled = false;
+            btnHeader.innerHTML = origH;
+          }
+          if (btnPreview) {
+            btnPreview.disabled = false;
+            btnPreview.innerHTML = origP;
+          }
+        }
+      }, 80);
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      const bg = type === 'success'
+        ? 'bg-emerald-700 border border-emerald-500'
+        : type === 'error'
+        ? 'bg-rose-700 border border-rose-500'
+        : 'bg-slate-800 border border-slate-600';
+      const icon = type === 'success'
+        ? 'fa-circle-check'
+        : type === 'error'
+        ? 'fa-triangle-exclamation'
+        : 'fa-circle-info';
+
+      toast.className = `pointer-events-auto px-4 py-3 rounded-xl shadow-lg text-white text-xs sm:text-sm font-semibold ${bg} flex items-center gap-2.5 transition-opacity duration-300`;
+      toast.innerHTML = `<i class="fa-solid ${icon} text-base"></i><span>${escapeHtml(message)}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+  </script>
+</body>
+</html>
